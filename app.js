@@ -24,7 +24,6 @@ import {
   deleteDoc,
   onSnapshot,
   query,
-  where,
   orderBy,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -32,7 +31,7 @@ import {
 //  🔧 CONFIGURE AQUI — cole os dados do seu projeto Firebase
 // ============================================================
 const firebaseConfig = {
- apiKey: "AIzaSyBfBYLYXucNBlB_lN1SEBHvG7H8mspAE0E",
+  apiKey: "AIzaSyBfBYLYXucNBlB_lN1SEBHvG7H8mspAE0E",
   authDomain: "minhafatura.firebaseapp.com",
   projectId: "minhafatura",
   storageBucket: "minhafatura.firebasestorage.app",
@@ -42,30 +41,26 @@ const firebaseConfig = {
 // ============================================================
 
 const fbApp = initializeApp(firebaseConfig);
-const auth = getAuth(fbApp);
-const db = getFirestore(fbApp);
+const auth  = getAuth(fbApp);
+const db    = getFirestore(fbApp);
 
 // ============================================================
 //  ESTADO LOCAL
 // ============================================================
-const MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho',
-                'agosto','setembro','outubro','novembro','dezembro'];
+const MONTHS   = ['janeiro','fevereiro','março','abril','maio','junho','julho',
+                  'agosto','setembro','outubro','novembro','dezembro'];
 const MONTHS_S = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-let currentUser = null;
+let currentUser  = null;
 let unsubCompras = null;
 
 let S = {
   fechamento: 10,
-  responsaveis: [],
   categorias: [],
-  compras: [],
+  compras:    [],
   faturaAtiva: null,
 };
 
-const DEFAULT_RESPONSAVEIS = [
-  { name: 'Eu', color: '#0fbcb0' },
-];
 const DEFAULT_CATEGORIAS = [
   { emoji: '📱', name: 'Assinaturas' },
   { emoji: '🚗', name: 'Seguro Carro' },
@@ -81,7 +76,7 @@ const DEFAULT_CATEGORIAS = [
 ];
 
 // ============================================================
-//  HELPERS — LOADING & ERRORS
+//  HELPERS
 // ============================================================
 function showLoading() { document.getElementById('loading').style.display = 'flex'; }
 function hideLoading() { document.getElementById('loading').style.display = 'none'; }
@@ -92,22 +87,22 @@ function showErr(elId, msg) {
   el.style.display = 'block';
   setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
+function fmt(v) {
+  return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 // ============================================================
-//  FIRESTORE — carregar / salvar configurações
+//  FIRESTORE — config
 // ============================================================
 async function loadUserConfig() {
-  const ref = doc(db, 'users', currentUser.uid);
+  const ref  = doc(db, 'users', currentUser.uid);
   const snap = await getDoc(ref);
   if (snap.exists()) {
     const d = snap.data();
     S.fechamento = d.fechamento ?? 10;
-    S.responsaveis = d.responsaveis ?? DEFAULT_RESPONSAVEIS;
     S.categorias = d.categorias ?? DEFAULT_CATEGORIAS;
   } else {
-    // primeiro acesso — salva defaults
     S.fechamento = 10;
-    S.responsaveis = [...DEFAULT_RESPONSAVEIS];
     S.categorias = [...DEFAULT_CATEGORIAS];
     await saveUserConfig();
   }
@@ -115,15 +110,11 @@ async function loadUserConfig() {
 
 async function saveUserConfig() {
   const ref = doc(db, 'users', currentUser.uid);
-  await setDoc(ref, {
-    fechamento: S.fechamento,
-    responsaveis: S.responsaveis,
-    categorias: S.categorias,
-  }, { merge: true });
+  await setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias }, { merge: true });
 }
 
 // ============================================================
-//  FIRESTORE — compras (listener em tempo real)
+//  FIRESTORE — compras (tempo real)
 // ============================================================
 function listenCompras() {
   if (unsubCompras) unsubCompras();
@@ -134,61 +125,42 @@ function listenCompras() {
   unsubCompras = onSnapshot(q, (snap) => {
     S.compras = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     buildFatNav();
+    buildFatFilter();
     renderHome();
   });
 }
 
-async function addCompraFirestore(compra) {
-  await addDoc(collection(db, 'users', currentUser.uid, 'compras'), compra);
-}
-
-async function updateCompraFirestore(id, compra) {
-  await updateDoc(doc(db, 'users', currentUser.uid, 'compras', id), compra);
-}
-
-async function deleteCompraFirestore(id) {
-  await deleteDoc(doc(db, 'users', currentUser.uid, 'compras', id));
-}
+async function addCompraFirestore(c)      { await addDoc(collection(db, 'users', currentUser.uid, 'compras'), c); }
+async function updateCompraFirestore(id, c) { await updateDoc(doc(db, 'users', currentUser.uid, 'compras', id), c); }
+async function deleteCompraFirestore(id)  { await deleteDoc(doc(db, 'users', currentUser.uid, 'compras', id)); }
 
 // ============================================================
 //  AUTH
 // ============================================================
 window.doLogin = async function () {
   const email = document.getElementById('l-email').value.trim();
-  const pass = document.getElementById('l-pass').value;
+  const pass  = document.getElementById('l-pass').value;
   if (!email || !pass) return showErr('login-error', 'Preencha e-mail e senha.');
   showLoading();
-  try {
-    await signInWithEmailAndPassword(auth, email, pass);
-  } catch (e) {
-    hideLoading();
-    showErr('login-error', traduzirErroAuth(e.code));
-  }
+  try { await signInWithEmailAndPassword(auth, email, pass); }
+  catch (e) { hideLoading(); showErr('login-error', traduzirErroAuth(e.code)); }
 };
 
 window.doRegister = async function () {
   const email = document.getElementById('l-email').value.trim();
-  const pass = document.getElementById('l-pass').value;
+  const pass  = document.getElementById('l-pass').value;
   if (!email || !pass) return showErr('login-error', 'Preencha e-mail e senha.');
   if (pass.length < 6) return showErr('login-error', 'Senha mínima: 6 caracteres.');
   showLoading();
-  try {
-    await createUserWithEmailAndPassword(auth, email, pass);
-  } catch (e) {
-    hideLoading();
-    showErr('login-error', traduzirErroAuth(e.code));
-  }
+  try { await createUserWithEmailAndPassword(auth, email, pass); }
+  catch (e) { hideLoading(); showErr('login-error', traduzirErroAuth(e.code)); }
 };
 
 window.doReset = async function () {
   const email = document.getElementById('l-email').value.trim();
   if (!email) return showErr('login-error', 'Digite seu e-mail para redefinir a senha.');
-  try {
-    await sendPasswordResetEmail(auth, email);
-    showErr('login-error', '✅ E-mail de redefinição enviado!');
-  } catch (e) {
-    showErr('login-error', traduzirErroAuth(e.code));
-  }
+  try { await sendPasswordResetEmail(auth, email); showErr('login-error', '✅ E-mail enviado!'); }
+  catch (e) { showErr('login-error', traduzirErroAuth(e.code)); }
 };
 
 window.doLogout = async function () {
@@ -198,18 +170,17 @@ window.doLogout = async function () {
 
 function traduzirErroAuth(code) {
   const msgs = {
-    'auth/user-not-found': 'Usuário não encontrado.',
-    'auth/wrong-password': 'Senha incorreta.',
+    'auth/user-not-found':       'Usuário não encontrado.',
+    'auth/wrong-password':       'Senha incorreta.',
     'auth/email-already-in-use': 'Este e-mail já está cadastrado.',
-    'auth/invalid-email': 'E-mail inválido.',
-    'auth/weak-password': 'Senha muito fraca (mínimo 6 caracteres).',
-    'auth/too-many-requests': 'Muitas tentativas. Tente novamente mais tarde.',
-    'auth/invalid-credential': 'E-mail ou senha incorretos.',
+    'auth/invalid-email':        'E-mail inválido.',
+    'auth/weak-password':        'Senha muito fraca (mínimo 6 caracteres).',
+    'auth/too-many-requests':    'Muitas tentativas. Tente mais tarde.',
+    'auth/invalid-credential':   'E-mail ou senha incorretos.',
   };
   return msgs[code] || 'Erro: ' + code;
 }
 
-// Listener de autenticação
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
@@ -217,13 +188,13 @@ onAuthStateChanged(auth, async (user) => {
     await loadUserConfig();
     listenCompras();
     const init = user.email.split('@')[0].slice(0, 2).toUpperCase();
-    document.getElementById('av').textContent = init;
-    document.getElementById('s-user').textContent = user.email;
+    document.getElementById('av').textContent      = init;
+    document.getElementById('s-user').textContent  = user.email;
     hideLoading();
     showApp();
   } else {
     currentUser = null;
-    S.compras = [];
+    S.compras   = [];
     show('scr-login');
     document.getElementById('bnav').style.display = 'none';
     hideLoading();
@@ -244,22 +215,24 @@ function setNav(id) {
 function showApp() {
   document.getElementById('bnav').style.display = 'flex';
   document.getElementById('s-fech').value = S.fechamento;
-  buildSelects();
+  buildCatSelect();
   goHome();
 }
 window.goHome = function () { show('scr-home'); setNav('nb-home'); renderHome(); };
-window.goAdd = function () { openAddForm(null); show('scr-form'); setNav('nb-add'); };
+window.goAdd  = function () { openAddForm(null); show('scr-form'); setNav('nb-add'); };
 window.goSett = function () {
-  show('scr-sett');
-  setNav('nb-sett');
+  show('scr-sett'); setNav('nb-sett');
   document.getElementById('s-user').textContent = currentUser?.email || '-';
   document.getElementById('s-fech').value = S.fechamento;
-  buildRespList();
   buildCatList();
 };
 
 // ============================================================
-//  LÓGICA DE FATURA
+//  LÓGICA DE FATURA + PARCELAMENTO
+//
+//  Uma compra de N parcelas aparece em N faturas consecutivas.
+//  fatKey salvo no Firestore = fatura da PRIMEIRA parcela.
+//  getAllFatKeys() gera todas as faturas que a compra ocupa.
 // ============================================================
 function getFatKey(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -280,23 +253,40 @@ function fatLabelFull(key) {
   return MONTHS[parseInt(m) - 1] + ' de ' + y;
 }
 
-function calcEndFatKey(data, parcelas) {
-  if (parcelas <= 1) return getFatKey(data);
-  const [y, m, d] = data.split('-').map(Number);
-  const end = new Date(y, m - 1 + parcelas - 1, d);
-  const es = end.getFullYear() + '-' + String(end.getMonth() + 1).padStart(2, '0') + '-' + String(end.getDate()).padStart(2, '0');
-  return getFatKey(es);
+// Retorna array com todas as fatKeys que a compra ocupa
+function getAllFatKeys(startFatKey, parcelas) {
+  const [y, m] = startFatKey.split('-').map(Number);
+  const keys = [];
+  for (let i = 0; i < parcelas; i++) {
+    const d = new Date(y, m - 1 + i, 1);
+    keys.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+  }
+  return keys;
 }
 
+function getEndFatKey(startFatKey, parcelas) {
+  const all = getAllFatKeys(startFatKey, parcelas);
+  return all[all.length - 1];
+}
+
+// Todas as faturas que devem aparecer no seletor
 function getActiveFats() {
-  const now = new Date();
+  const now  = new Date();
   const keys = new Set();
-  for (let i = -1; i <= 3; i++) {
+  for (let i = -2; i <= 3; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     keys.add(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
   }
-  S.compras.forEach(c => { if (c.fatKey) keys.add(c.fatKey); });
+  // inclui todos os meses com parcelas em andamento
+  S.compras.forEach(c => {
+    getAllFatKeys(c.fatKey, c.parcelas).forEach(k => keys.add(k));
+  });
   return [...keys].sort();
+}
+
+// Compras que aparecem em uma fatura (inclui parceladas de meses anteriores)
+function getComprasDaFatura(fatKey) {
+  return S.compras.filter(c => getAllFatKeys(c.fatKey, c.parcelas).includes(fatKey));
 }
 
 function buildFatNav() {
@@ -311,9 +301,33 @@ function buildFatNav() {
   nav.innerHTML = keys.map(k =>
     `<div class="fat-chip ${k === S.faturaAtiva ? 'active' : ''}" onclick="selFat('${k}')">${fatLabel(k)}</div>`
   ).join('');
+  setTimeout(() => {
+    const active = nav.querySelector('.fat-chip.active');
+    if (active) active.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }, 50);
 }
 
-window.selFat = function (k) { S.faturaAtiva = k; buildFatNav(); renderHome(); };
+function buildFatFilter() {
+  const sel = document.getElementById('fil-fatura');
+  if (!sel) return;
+  const keys = getActiveFats();
+  sel.innerHTML = keys.map(k =>
+    `<option value="${k}" ${k === S.faturaAtiva ? 'selected' : ''}>${fatLabelFull(k)}</option>`
+  ).join('');
+}
+
+window.selFat = function (k) {
+  S.faturaAtiva = k;
+  const sel = document.getElementById('fil-fatura');
+  if (sel) sel.value = k;
+  buildFatNav();
+  renderHome();
+};
+
+window.onFatFilterChange = function () {
+  const sel = document.getElementById('fil-fatura');
+  if (sel) selFat(sel.value);
+};
 
 // ============================================================
 //  RENDER HOME
@@ -324,21 +338,20 @@ function renderHome() {
 
   const fat = S.faturaAtiva;
   if (!fat) return;
+
   const [fy, fm] = fat.split('-');
-  document.getElementById('fat-label').textContent = `Fatura de ${MONTHS[parseInt(fm) - 1]} de ${fy}`;
+  document.getElementById('fat-label').textContent    = `Fatura de ${MONTHS[parseInt(fm) - 1]} de ${fy}`;
   document.getElementById('fat-sub-info').textContent = `Fecha no dia ${S.fechamento}`;
 
-  const filResp = document.getElementById('fil-resp')?.value || '';
-  const search = (document.getElementById('search')?.value || '').toLowerCase();
+  const search  = (document.getElementById('search')?.value || '').toLowerCase();
+  let compras   = getComprasDaFatura(fat);
 
-  let compras = S.compras.filter(c => c.fatKey === fat);
-
-  // Resumo por categoria (TODAS, sem filtro)
+  // Resumo por categoria (sem filtro de busca)
   const catMap = {};
   compras.forEach(c => { catMap[c.cat] = (catMap[c.cat] || 0) + c.valorParcela; });
 
   const resumoEl = document.getElementById('cat-resumo');
-  const catKeys = Object.keys(catMap).sort((a, b) => catMap[b] - catMap[a]);
+  const catKeys  = Object.keys(catMap).sort((a, b) => catMap[b] - catMap[a]);
   if (catKeys.length === 0) {
     resumoEl.innerHTML = '<div style="font-size:12px;color:rgba(255,255,255,0.4);text-align:center;padding:4px 0;">Sem lançamentos</div>';
   } else {
@@ -350,10 +363,10 @@ function renderHome() {
 
   const total = Object.values(catMap).reduce((a, b) => a + b, 0);
   document.getElementById('fat-total').textContent = `R$ ${fmt(total)}`;
-  document.getElementById('fat-count').textContent = `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}`;
+  document.getElementById('fat-count').textContent =
+    `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}`;
 
-  // Aplicar filtros na lista
-  if (filResp) compras = compras.filter(c => c.resp === filResp);
+  // Filtro de busca
   if (search) compras = compras.filter(c =>
     c.desc?.toLowerCase().includes(search) || c.cat?.toLowerCase().includes(search)
   );
@@ -365,21 +378,18 @@ function renderHome() {
   }
 
   list.innerHTML = [...compras].map(c => {
-    const cat = S.categorias.find(x => x.name === c.cat) || { emoji: '📦' };
-    const resp = S.responsaveis.find(x => x.name === c.resp) || { color: '#888' };
-    const endKey = calcEndFatKey(c.data, c.parcelas);
-    const [sy, sm] = c.fatKey.split('-').map(Number);
-    const [fy2, fm2] = fat.split('-').map(Number);
-    const parAtual = Math.max(1, (fy2 - sy) * 12 + (fm2 - sm) + 1);
+    const cat      = S.categorias.find(x => x.name === c.cat) || { emoji: '📦' };
+    const allKeys  = getAllFatKeys(c.fatKey, c.parcelas);
+    const parAtual = allKeys.indexOf(fat) + 1;
+    const endKey   = getEndFatKey(c.fatKey, c.parcelas);
     const parLabel = c.parcelas > 1 ? `Parcela ${parAtual} de ${c.parcelas}` : 'À vista';
-    const finalizaLabel = c.parcelas > 1 ? `Finaliza: ${fatLabelFull(endKey)}` : '';
-    const pct = c.parcelas > 1 ? Math.min(100, Math.round((parAtual / c.parcelas) * 100)) : 100;
+    const finLabel = c.parcelas > 1 ? `Finaliza: ${fatLabelFull(endKey)}` : '';
+    const pct      = c.parcelas > 1 ? Math.min(100, Math.round((parAtual / c.parcelas) * 100)) : 100;
 
     return `<div class="compra-card">
       <div class="cc-top">
         <div class="cc-badges">
           <div class="cc-badge">${cat.emoji} ${c.cat}</div>
-          <div class="cc-resp-badge" style="color:${resp.color}">${c.resp}</div>
         </div>
         <div class="cc-actions">
           <button class="cc-act-btn" onclick="editCompra('${c.id}')">✏️</button>
@@ -390,7 +400,7 @@ function renderHome() {
       <div class="cc-mid">
         <div class="cc-meta">
           <div class="cc-parcela-txt">${parLabel}</div>
-          ${finalizaLabel ? `<div class="cc-finaliza">${finalizaLabel}</div>` : ''}
+          ${finLabel ? `<div class="cc-finaliza">${finLabel}</div>` : ''}
         </div>
         <div class="cc-valor">R$ ${fmt(c.valorParcela)}</div>
       </div>
@@ -399,38 +409,28 @@ function renderHome() {
   }).join('');
 }
 
-function fmt(v) {
-  return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 // ============================================================
 //  SELECTS
 // ============================================================
-function buildSelects() {
-  const rs = document.getElementById('f-resp');
-  if (rs) rs.innerHTML = S.responsaveis.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
-
+function buildCatSelect() {
   const cs = document.getElementById('f-cat');
-  if (cs) cs.innerHTML = S.categorias.map(c => `<option value="${c.name}">${c.emoji} ${c.name}</option>`).join('');
-
-  const fr = document.getElementById('fil-resp');
-  if (fr) fr.innerHTML = `<option value="">Todos os responsáveis</option>` +
-    S.responsaveis.map(r => `<option value="${r.name}">${r.name}</option>`).join('');
+  if (cs) cs.innerHTML = S.categorias.map(c =>
+    `<option value="${c.name}">${c.emoji} ${c.name}</option>`
+  ).join('');
 }
 
 // ============================================================
 //  FORM — ADICIONAR / EDITAR
 // ============================================================
 function openAddForm(compra) {
-  buildSelects();
-  document.getElementById('edit-id').value = compra?.id || '';
+  buildCatSelect();
+  document.getElementById('edit-id').value          = compra?.id || '';
   document.getElementById('form-title').textContent = compra ? 'Editar compra' : 'Nova compra';
-  document.getElementById('f-resp').value = compra?.resp || S.responsaveis[0]?.name || '';
-  document.getElementById('f-desc').value = compra?.desc || '';
-  document.getElementById('f-cat').value = compra?.cat || S.categorias[0]?.name || '';
-  document.getElementById('f-data').value = compra?.data || new Date().toISOString().split('T')[0];
-  document.getElementById('f-parc').value = compra?.parcelas || 1;
-  document.getElementById('f-val').value = compra?.valorParcela || '';
+  document.getElementById('f-desc').value           = compra?.desc || '';
+  document.getElementById('f-cat').value            = compra?.cat  || S.categorias[0]?.name || '';
+  document.getElementById('f-data').value           = compra?.data || new Date().toISOString().split('T')[0];
+  document.getElementById('f-parc').value           = compra?.parcelas      || 1;
+  document.getElementById('f-val').value            = compra?.valorParcela  || '';
 }
 
 window.editCompra = function (id) {
@@ -444,37 +444,30 @@ window.editCompra = function (id) {
 window.confirmDelete = async function (id) {
   if (!confirm('Remover esta compra?')) return;
   showLoading();
-  try {
-    await deleteCompraFirestore(id);
-  } catch (e) {
-    alert('Erro ao remover: ' + e.message);
-  }
+  try { await deleteCompraFirestore(id); }
+  catch (e) { alert('Erro ao remover: ' + e.message); }
   hideLoading();
 };
 
 window.saveCompra = async function () {
-  const resp = document.getElementById('f-resp').value;
-  const desc = document.getElementById('f-desc').value.trim();
-  const cat = document.getElementById('f-cat').value;
-  const data = document.getElementById('f-data').value;
-  const parcelas = Math.max(1, parseInt(document.getElementById('f-parc').value) || 1);
+  const desc         = document.getElementById('f-desc').value.trim();
+  const cat          = document.getElementById('f-cat').value;
+  const data         = document.getElementById('f-data').value;
+  const parcelas     = Math.max(1, parseInt(document.getElementById('f-parc').value) || 1);
   const valorParcela = parseFloat(document.getElementById('f-val').value);
 
-  if (!desc) return showErr('form-error', 'Preencha a descrição.');
-  if (!data) return showErr('form-error', 'Escolha a data.');
+  if (!desc)                              return showErr('form-error', 'Preencha a descrição.');
+  if (!data)                              return showErr('form-error', 'Escolha a data.');
   if (!valorParcela || valorParcela <= 0) return showErr('form-error', 'Informe o valor da parcela.');
 
-  const fatKey = getFatKey(data);
-  const payload = { resp, desc, cat, data, parcelas, valorParcela, fatKey };
+  const fatKey  = getFatKey(data);
+  const payload = { desc, cat, data, parcelas, valorParcela, fatKey };
 
   showLoading();
   try {
     const editId = document.getElementById('edit-id').value;
-    if (editId) {
-      await updateCompraFirestore(editId, payload);
-    } else {
-      await addCompraFirestore(payload);
-    }
+    if (editId) { await updateCompraFirestore(editId, payload); }
+    else        { await addCompraFirestore(payload); }
     S.faturaAtiva = fatKey;
     goHome();
   } catch (e) {
@@ -497,39 +490,6 @@ window.saveFech = async function () {
 };
 
 // ============================================================
-//  SETTINGS — Responsáveis
-// ============================================================
-function buildRespList() {
-  const el = document.getElementById('resp-list');
-  if (!el) return;
-  el.innerHTML = S.responsaveis.map((r, i) => `
-    <div class="resp-item">
-      <div class="resp-dot" style="background:${r.color}"></div>
-      <input class="resp-name-inp" value="${r.name}"
-        onchange="S.responsaveis[${i}].name=this.value;saveUserConfig();buildSelects();" />
-      <button class="btn-del" onclick="removeResp(${i})">✕</button>
-    </div>`).join('');
-}
-
-window.removeResp = async function (i) {
-  S.responsaveis.splice(i, 1);
-  await saveUserConfig();
-  buildRespList();
-  buildSelects();
-};
-
-window.addResp = async function () {
-  const n = document.getElementById('new-resp').value.trim();
-  const c = document.getElementById('new-resp-color').value;
-  if (!n) return;
-  S.responsaveis.push({ name: n, color: c });
-  document.getElementById('new-resp').value = '';
-  await saveUserConfig();
-  buildRespList();
-  buildSelects();
-};
-
-// ============================================================
 //  SETTINGS — Categorias
 // ============================================================
 function buildCatList() {
@@ -539,7 +499,7 @@ function buildCatList() {
     <div class="resp-item">
       <span style="font-size:18px;width:24px;text-align:center;">${c.emoji}</span>
       <input class="resp-name-inp" value="${c.name}"
-        onchange="S.categorias[${i}].name=this.value;saveUserConfig();buildSelects();" />
+        onchange="S.categorias[${i}].name=this.value;saveUserConfig();buildCatSelect();" />
       <button class="btn-del" onclick="removeCat(${i})">✕</button>
     </div>`).join('');
 }
@@ -548,7 +508,7 @@ window.removeCat = async function (i) {
   S.categorias.splice(i, 1);
   await saveUserConfig();
   buildCatList();
-  buildSelects();
+  buildCatSelect();
 };
 
 window.addCat = async function () {
@@ -559,13 +519,11 @@ window.addCat = async function () {
   document.getElementById('new-cat-n').value = '';
   await saveUserConfig();
   buildCatList();
-  buildSelects();
+  buildCatSelect();
 };
 
-// Exporta para uso no HTML inline (onclick)
 window.saveUserConfig = saveUserConfig;
 
-// Inicializa a data padrão no form
 document.addEventListener('DOMContentLoaded', () => {
   const fd = document.getElementById('f-data');
   if (fd) fd.value = new Date().toISOString().split('T')[0];

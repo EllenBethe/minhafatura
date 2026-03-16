@@ -68,9 +68,7 @@
     </div>
 
     <div class="filters">
-      <select id="fil-resp" onchange="renderHome()">
-        <option value="">Todos os responsáveis</option>
-      </select>
+      <select id="fil-fatura" onchange="onFatFilterChange()"></select>
     </div>
     <div class="search-row">
       <input class="search-inp" id="search" placeholder="🔍  Buscar por nome..." oninput="renderHome()" />
@@ -90,10 +88,6 @@
     <div class="form-section">
       <input type="hidden" id="edit-id" value="" />
       <div class="form-grid">
-        <div class="f-field full">
-          <div class="lbl">Responsável</div>
-          <select class="inp" id="f-resp"></select>
-        </div>
         <div class="f-field full">
           <div class="lbl">Descrição do item</div>
           <input class="inp" id="f-desc" placeholder="Ex: Compra Mercado" />
@@ -139,16 +133,6 @@
         <span class="sett-val" id="s-user">-</span>
       </div>
       <button class="btn-logout" onclick="doLogout()">Sair da conta</button>
-    </div>
-
-    <div class="sett-card">
-      <h3>Responsáveis</h3>
-      <div id="resp-list"></div>
-      <div class="add-row">
-        <input class="inp" id="new-resp" placeholder="Nome" />
-        <input type="color" id="new-resp-color" value="#0fbcb0" class="color-pick" />
-        <button class="btn-sm" onclick="addResp()">+</button>
-      </div>
     </div>
 
     <div class="sett-card">
