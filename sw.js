@@ -1,5 +1,7 @@
-// Aumente a versão a cada deploy para descartar o cache antigo
-const CACHE = 'minhafatura-v4';
+// A cada deploy: aumente VERSION aqui E o ?v= de app.js/style.css no index.html.
+// O ?v= garante que um HTML só carregue o JS/CSS da mesma versão.
+const VERSION = 5;
+const CACHE = 'minhafatura-v' + VERSION;
 // Recursos externos com URL versionada/imutável: cache-first
 const CDN_PREFIXES = [
   'https://www.gstatic.com/firebasejs/',
@@ -9,8 +11,8 @@ const CDN_PREFIXES = [
 const ASSETS = [
   './',
   './index.html',
-  './style.css',
-  './app.js',
+  './style.css?v=' + VERSION,
+  './app.js?v=' + VERSION,
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -20,7 +22,9 @@ self.addEventListener('install', e => {
   e.waitUntil(
     // Um arquivo por vez: uma falha isolada não impede a instalação (addAll é tudo-ou-nada)
     caches.open(CACHE)
-      .then(c => Promise.all(ASSETS.map(u => c.add(u).catch(e => console.warn('SW: não cacheou', u, e)))))
+      // cache: 'reload' ignora o cache HTTP do navegador e busca direto do servidor
+      .then(c => Promise.all(ASSETS.map(u =>
+        c.add(new Request(u, { cache: 'reload' })).catch(e => console.warn('SW: não cacheou', u, e)))))
       .then(() => self.skipWaiting())
   );
 });

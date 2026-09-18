@@ -386,6 +386,7 @@ function buildCatFilter() {
 // Toque numa linha do resumo: filtra pela categoria (tocar de novo limpa)
 window.filtrarCat = function (nome) {
   const sel = document.getElementById('fil-cat');
+  if (!sel) return;
   sel.value = sel.value === nome ? '' : nome;
   renderHome();
 };
@@ -439,11 +440,9 @@ function renderHome() {
   );
 
   const secTitle = document.getElementById('sec-title');
-  if (filCat) {
+  if (secTitle) {
     const soma = compras.reduce((a, c) => a + c.valorParcela, 0);
-    secTitle.textContent = `${filCat} · R$ ${fmt(soma)}`;
-  } else {
-    secTitle.textContent = 'compras da fatura';
+    secTitle.textContent = filCat ? `${filCat} · R$ ${fmt(soma)}` : 'compras da fatura';
   }
 
   const list = document.getElementById('compras-list');
@@ -505,7 +504,8 @@ function openAddForm(compra) {
   document.getElementById('f-cat').value            = compra?.cat  || S.categorias[0]?.name || '';
   document.getElementById('f-data').value           = compra?.data || hojeISO();
   document.getElementById('f-parc').value           = compra?.parcelas      || 1;
-  document.getElementById('f-tipo-val').value       = 'parcela';
+  const tipoVal = document.getElementById('f-tipo-val');
+  if (tipoVal) tipoVal.value = 'parcela';
   document.getElementById('f-val').value            = compra?.valorParcela  || '';
   updateValorHint();
 }
@@ -514,7 +514,7 @@ function openAddForm(compra) {
 function lerValorParcela() {
   const parcelas = Math.max(1, parseInt(document.getElementById('f-parc').value) || 1);
   const valor    = parseFloat(document.getElementById('f-val').value);
-  const tipo     = document.getElementById('f-tipo-val').value;
+  const tipo     = document.getElementById('f-tipo-val')?.value || 'parcela';
   if (!valor || valor <= 0) return null;
   const parcela  = tipo === 'total' ? valor / parcelas : valor;
   return { parcelas, valorParcela: Math.round(parcela * 100) / 100 };
@@ -522,6 +522,7 @@ function lerValorParcela() {
 
 window.updateValorHint = function () {
   const hint = document.getElementById('f-val-hint');
+  if (!hint) return;
   const v    = lerValorParcela();
   if (!v) { hint.textContent = ''; return; }
   hint.textContent = v.parcelas > 1
@@ -661,5 +662,14 @@ document.addEventListener('DOMContentLoaded', () => {
 //  PWA — service worker
 // ============================================================
 if ('serviceWorker' in navigator) {
+  // Quando uma versão nova do SW assume (atualização, não a 1ª instalação),
+  // recarrega para que HTML, JS e CSS venham todos da mesma versão
+  const tinhaSW = !!navigator.serviceWorker.controller;
+  let recarregou = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!tinhaSW || recarregou) return;
+    recarregou = true;
+    location.reload();
+  });
   navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW não registrado:', e));
 }
