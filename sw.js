@@ -1,12 +1,13 @@
-const CACHE = 'minhafatura-v1';
+// Aumente a versão a cada deploy para descartar o cache antigo
+const CACHE = 'minhafatura-v2';
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/app.js',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
 ];
 
 self.addEventListener('install', e => {
@@ -23,10 +24,19 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Network-first: sempre tenta a versão mais nova e usa o cache só offline
 self.addEventListener('fetch', e => {
-  // Só cacheia requests do mesmo domínio (não Firebase)
-  if (!e.request.url.startsWith(self.location.origin)) return;
+  // Só cacheia requests GET do mesmo domínio (não Firebase)
+  if (e.request.method !== 'GET' || !e.request.url.startsWith(self.location.origin)) return;
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    fetch(e.request)
+      .then(res => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });

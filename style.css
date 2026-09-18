@@ -204,6 +204,10 @@ body {
   padding: 9px 12px;
   text-align: center;
 }
+.error-msg.ok {
+  color: var(--teal);
+  background: rgba(15,188,176,0.1);
+}
 
 /* ===== TOPBAR ===== */
 .topbar {

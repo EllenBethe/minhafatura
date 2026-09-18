@@ -1,0 +1,13 @@
+# Arquivos temporários do Google Drive
+.tmp.driveupload/
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+
+# Firebase CLI
+.firebase/
+firebase-debug.log
+firestore-debug.log
