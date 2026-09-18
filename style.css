@@ -329,6 +329,22 @@ select:focus-visible {
   color: rgba(255,255,255,0.85);
 }
 .cat-resumo-row b { color: #fff; font-weight: 700; }
+/* Linhas do resumo são botões que filtram a lista pela categoria */
+button.cat-resumo-row {
+  width: 100%;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+}
+button.cat-resumo-row.active {
+  background: rgba(255,255,255,0.15);
+  margin: 0 -6px;
+  padding: 3px 6px;
+  width: calc(100% + 12px);
+}
 .fatura-total {
   font-size: 36px;
   font-weight: 800;
@@ -344,7 +360,12 @@ select:focus-visible {
 }
 
 /* ===== FILTERS ===== */
-.filters { padding: 6px 16px 4px; }
+.filters {
+  padding: 6px 16px 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
 .filters select {
   width: 100%;
   background: var(--card);

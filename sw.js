@@ -1,5 +1,5 @@
 // Aumente a versão a cada deploy para descartar o cache antigo
-const CACHE = 'minhafatura-v3';
+const CACHE = 'minhafatura-v4';
 // Recursos externos com URL versionada/imutável: cache-first
 const CDN_PREFIXES = [
   'https://www.gstatic.com/firebasejs/',

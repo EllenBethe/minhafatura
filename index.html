@@ -68,13 +68,16 @@
     </div>
 
     <div class="filters">
-      <select id="fil-fatura" onchange="onFatFilterChange()"></select>
+      <select id="fil-fatura" onchange="onFatFilterChange()" aria-label="Fatura"></select>
+      <select id="fil-cat" onchange="renderHome()" aria-label="Categoria">
+        <option value="">Todas as categorias</option>
+      </select>
     </div>
     <div class="search-row">
       <input class="search-inp" id="search" placeholder="🔍  Buscar por nome..." oninput="renderHome()" />
     </div>
 
-    <div class="sec-title">compras da fatura</div>
+    <div class="sec-title" id="sec-title">compras da fatura</div>
     <div class="compras-list" id="compras-list"></div>
   </div>
 

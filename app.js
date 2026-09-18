@@ -368,6 +368,28 @@ window.onFatFilterChange = function () {
   if (sel) selFat(sel.value);
 };
 
+// Categorias cadastradas + nomes antigos ainda usados por compras; preserva a seleção
+function buildCatFilter() {
+  const sel = document.getElementById('fil-cat');
+  if (!sel) return;
+  const atual = sel.value;
+  const nomes = S.categorias.map(c => c.name);
+  S.compras.forEach(c => { if (c.cat && !nomes.includes(c.cat)) nomes.push(c.cat); });
+  if (atual && !nomes.includes(atual)) nomes.push(atual);
+  sel.innerHTML = '<option value="">Todas as categorias</option>' + nomes.map(n => {
+    const emoji = S.categorias.find(c => c.name === n)?.emoji || '📦';
+    return `<option value="${esc(n)}">${esc(emoji)} ${esc(n)}</option>`;
+  }).join('');
+  sel.value = atual;
+}
+
+// Toque numa linha do resumo: filtra pela categoria (tocar de novo limpa)
+window.filtrarCat = function (nome) {
+  const sel = document.getElementById('fil-cat');
+  sel.value = sel.value === nome ? '' : nome;
+  renderHome();
+};
+
 // ============================================================
 //  RENDER HOME
 // ============================================================
@@ -375,6 +397,7 @@ function renderHome() {
   if (!document.getElementById('scr-home').classList.contains('active')) return;
   buildFatNav();
   buildFatFilter();
+  buildCatFilter();
 
   const fat = S.faturaAtiva;
   if (!fat) return;
@@ -384,9 +407,10 @@ function renderHome() {
   document.getElementById('fat-sub-info').textContent = `Fecha no dia ${S.fechamento}`;
 
   const search  = (document.getElementById('search')?.value || '').toLowerCase();
+  const filCat  = document.getElementById('fil-cat')?.value || '';
   let compras   = getComprasDaFatura(fat);
 
-  // Resumo por categoria (sem filtro de busca)
+  // Resumo por categoria (sem filtros: mostra sempre a fatura inteira)
   const catMap = {};
   compras.forEach(c => { catMap[c.cat] = (catMap[c.cat] || 0) + c.valorParcela; });
 
@@ -397,7 +421,9 @@ function renderHome() {
   } else {
     resumoEl.innerHTML = catKeys.map(k => {
       const cat = S.categorias.find(c => c.name === k);
-      return `<div class="cat-resumo-row"><span>${esc(cat?.emoji || '')} ${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></div>`;
+      return `<button type="button" class="cat-resumo-row ${k === filCat ? 'active' : ''}" data-cat="${esc(k)}"
+        onclick="filtrarCat(this.dataset.cat)" aria-pressed="${k === filCat}">
+        <span>${esc(cat?.emoji || '')} ${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></button>`;
     }).join('');
   }
 
@@ -406,14 +432,23 @@ function renderHome() {
   document.getElementById('fat-count').textContent =
     `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}`;
 
-  // Filtro de busca
+  // Filtros de categoria e busca (afetam só a lista)
+  if (filCat) compras = compras.filter(c => c.cat === filCat);
   if (search) compras = compras.filter(c =>
     c.desc?.toLowerCase().includes(search) || c.cat?.toLowerCase().includes(search)
   );
 
+  const secTitle = document.getElementById('sec-title');
+  if (filCat) {
+    const soma = compras.reduce((a, c) => a + c.valorParcela, 0);
+    secTitle.textContent = `${filCat} · R$ ${fmt(soma)}`;
+  } else {
+    secTitle.textContent = 'compras da fatura';
+  }
+
   const list = document.getElementById('compras-list');
   if (compras.length === 0) {
-    list.innerHTML = '<div class="empty">Nenhuma compra nesta fatura</div>';
+    list.innerHTML = `<div class="empty">${filCat || search ? 'Nenhuma compra com esse filtro' : 'Nenhuma compra nesta fatura'}</div>`;
     return;
   }
 
