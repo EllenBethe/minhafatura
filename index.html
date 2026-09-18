@@ -40,7 +40,7 @@
         <div id="login-error" class="error-msg" style="display:none;"></div>
         <button class="btn-teal" id="login-btn" onclick="doLogin()">Entrar</button>
         <button class="btn-outline" id="register-btn" onclick="doRegister()">Criar conta</button>
-        <div class="login-reset" onclick="doReset()">Esqueci minha senha</div>
+        <button type="button" class="login-reset" onclick="doReset()">Esqueci minha senha</button>
       </div>
     </div>
   </div>
@@ -49,7 +49,7 @@
   <div id="scr-home" class="screen">
     <div class="topbar">
       <div class="topbar-logo">Minha<span>Fatura</span></div>
-      <div class="avatar" id="av" onclick="goSett()">--</div>
+      <button type="button" class="avatar" id="av" onclick="goSett()" aria-label="Configurações">--</button>
     </div>
 
     <div class="fatura-nav" id="fat-nav"></div>
@@ -60,7 +60,7 @@
           <div class="fatura-mes-label" id="fat-label">Fatura</div>
           <div class="fatura-sub-info" id="fat-sub-info">fecha dia —</div>
         </div>
-        <div class="fatura-pill" onclick="goAdd()">+ Nova</div>
+        <button type="button" class="fatura-pill" onclick="goAdd()">+ Nova</button>
       </div>
       <div class="cat-resumo" id="cat-resumo"></div>
       <div class="fatura-total" id="fat-total">R$ 0,00</div>
@@ -81,7 +81,7 @@
   <!-- ===== FORM ===== -->
   <div id="scr-form" class="screen">
     <div class="topbar">
-      <div class="back-btn" onclick="goHome()">←</div>
+      <button type="button" class="back-btn" onclick="goHome()" aria-label="Voltar">←</button>
       <div class="topbar-logo" id="form-title">Nova compra</div>
       <div style="width:34px;"></div>
     </div>
@@ -102,12 +102,20 @@
         </div>
         <div class="f-field">
           <div class="lbl">Qtd parcelas</div>
-          <input class="inp" type="number" id="f-parc" placeholder="Ex: 12" min="1" value="1" />
+          <input class="inp" type="number" id="f-parc" placeholder="Ex: 12" min="1" value="1" oninput="updateValorHint()" />
         </div>
-        <div class="f-field full">
-          <div class="lbl">Valor da parcela (R$)</div>
-          <input class="inp" type="number" id="f-val" placeholder="0,00" step="0.01" inputmode="decimal" />
+        <div class="f-field">
+          <label class="lbl" for="f-tipo-val">Informar</label>
+          <select class="inp" id="f-tipo-val" onchange="updateValorHint()">
+            <option value="parcela">Valor da parcela</option>
+            <option value="total">Valor total</option>
+          </select>
         </div>
+        <div class="f-field">
+          <label class="lbl" for="f-val">Valor (R$)</label>
+          <input class="inp" type="number" id="f-val" placeholder="0,00" step="0.01" min="0" inputmode="decimal" oninput="updateValorHint()" />
+        </div>
+        <div class="valor-hint full" id="f-val-hint"></div>
       </div>
       <div id="form-error" class="error-msg" style="display:none;"></div>
       <button class="btn-teal" style="margin-top:14px;" id="save-btn" onclick="saveCompra()">Salvar</button>
@@ -117,7 +125,7 @@
   <!-- ===== SETTINGS ===== -->
   <div id="scr-sett" class="screen">
     <div class="topbar">
-      <div class="back-btn" onclick="goHome()">←</div>
+      <button type="button" class="back-btn" onclick="goHome()" aria-label="Voltar">←</button>
       <div class="topbar-logo">Configurações</div>
       <div style="width:34px;"></div>
     </div>
@@ -149,20 +157,20 @@
 </div><!-- #app -->
 
 <!-- BOTTOM NAV -->
-<div id="bnav" class="bottom-nav" style="display:none;">
-  <div class="nav-btn active" id="nb-home" onclick="goHome()">
-    <div class="nav-ic">💳</div>
-    <div class="nav-lbl">Fatura</div>
-  </div>
-  <div class="nav-btn" id="nb-add" onclick="goAdd()">
-    <div class="nav-ic">➕</div>
-    <div class="nav-lbl">Adicionar</div>
-  </div>
-  <div class="nav-btn" id="nb-sett" onclick="goSett()">
-    <div class="nav-ic">⚙️</div>
-    <div class="nav-lbl">Config</div>
-  </div>
-</div>
+<nav id="bnav" class="bottom-nav" style="display:none;" aria-label="Navegação principal">
+  <button type="button" class="nav-btn active" id="nb-home" onclick="goHome()">
+    <span class="nav-ic" aria-hidden="true">💳</span>
+    <span class="nav-lbl">Fatura</span>
+  </button>
+  <button type="button" class="nav-btn" id="nb-add" onclick="goAdd()">
+    <span class="nav-ic" aria-hidden="true">➕</span>
+    <span class="nav-lbl">Adicionar</span>
+  </button>
+  <button type="button" class="nav-btn" id="nb-sett" onclick="goSett()">
+    <span class="nav-ic" aria-hidden="true">⚙️</span>
+    <span class="nav-lbl">Config</span>
+  </button>
+</nav>
 
 <!-- LOADING OVERLAY -->
 <div id="loading" class="loading-overlay" style="display:none;">

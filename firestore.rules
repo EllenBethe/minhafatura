@@ -1,28 +1,17 @@
 rules_version = '2';
 
-// Cada usuário só lê e escreve os próprios dados (users/{uid} e subcoleções).
-// Publique em: Console Firebase → Firestore → Regras, ou `firebase deploy --only firestore:rules`.
+// Espelho das regras publicadas no console do Firebase (Firestore → Regras).
+// Ao alterar aqui, publique também no console ou com `firebase deploy --only firestore:rules`.
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+    // Cada usuário acessa SOMENTE os próprios dados
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
 
       match /compras/{compraId} {
-        allow read, delete: if request.auth != null && request.auth.uid == uid;
-        allow create, update: if request.auth != null && request.auth.uid == uid
-          && request.resource.data.desc is string
-          && request.resource.data.desc.size() <= 200
-          && request.resource.data.parcelas is int
-          && request.resource.data.parcelas >= 1
-          && request.resource.data.parcelas <= 72
-          && request.resource.data.valorParcela is number
-          && request.resource.data.valorParcela > 0;
+        allow read, write: if request.auth != null && request.auth.uid == userId;
       }
-    }
-
-    // Todo o resto é negado
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }

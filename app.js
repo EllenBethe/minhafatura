@@ -14,7 +14,9 @@ import {
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   getDoc,
   setDoc,
@@ -45,7 +47,10 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
-const db    = getFirestore(fbApp);
+// Cache local: o app abre e aceita lançamentos offline, sincronizando ao voltar a conexão
+const db    = initializeFirestore(fbApp, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 
 // ============================================================
 //  ESTADO LOCAL
@@ -94,6 +99,13 @@ function showErr(elId, msg, ok = false) {
 function fmt(v) {
   return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+// Offline, as escritas do Firestore só resolvem quando a conexão volta:
+// nesse caso não esperamos (o cache local já reflete a mudança) e só avisamos se falhar
+function gravar(promise) {
+  if (navigator.onLine) return promise;
+  promise.catch(e => alert('Erro ao sincronizar: ' + e.message));
+  return Promise.resolve();
+}
 // Escapa texto do usuário antes de inserir via innerHTML
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, ch =>
@@ -124,7 +136,7 @@ async function loadUserConfig() {
 
 async function saveUserConfig() {
   const ref = doc(db, 'users', currentUser.uid);
-  await setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias }, { merge: true });
+  await gravar(setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias }, { merge: true }));
 }
 
 // ============================================================
@@ -145,9 +157,9 @@ function listenCompras() {
   });
 }
 
-async function addCompraFirestore(c)      { await addDoc(collection(db, 'users', currentUser.uid, 'compras'), c); }
-async function updateCompraFirestore(id, c) { await updateDoc(doc(db, 'users', currentUser.uid, 'compras', id), c); }
-async function deleteCompraFirestore(id)  { await deleteDoc(doc(db, 'users', currentUser.uid, 'compras', id)); }
+async function addCompraFirestore(c)      { await gravar(addDoc(collection(db, 'users', currentUser.uid, 'compras'), c)); }
+async function updateCompraFirestore(id, c) { await gravar(updateDoc(doc(db, 'users', currentUser.uid, 'compras', id), c)); }
+async function deleteCompraFirestore(id)  { await gravar(deleteDoc(doc(db, 'users', currentUser.uid, 'compras', id))); }
 
 // ============================================================
 //  AUTH
@@ -326,7 +338,8 @@ function buildFatNav() {
   const nav = document.getElementById('fat-nav');
   if (!nav) return;
   nav.innerHTML = keys.map(k =>
-    `<div class="fat-chip ${k === S.faturaAtiva ? 'active' : ''}" onclick="selFat('${k}')">${fatLabel(k)}</div>`
+    `<button type="button" class="fat-chip ${k === S.faturaAtiva ? 'active' : ''}" onclick="selFat('${k}')"
+       aria-pressed="${k === S.faturaAtiva}" aria-label="Fatura de ${fatLabelFull(k)}">${fatLabel(k)}</button>`
   ).join('');
   setTimeout(() => {
     const active = nav.querySelector('.fat-chip.active');
@@ -457,8 +470,29 @@ function openAddForm(compra) {
   document.getElementById('f-cat').value            = compra?.cat  || S.categorias[0]?.name || '';
   document.getElementById('f-data').value           = compra?.data || hojeISO();
   document.getElementById('f-parc').value           = compra?.parcelas      || 1;
+  document.getElementById('f-tipo-val').value       = 'parcela';
   document.getElementById('f-val').value            = compra?.valorParcela  || '';
+  updateValorHint();
 }
+
+// Converte o valor digitado em valor da parcela (arredondado em centavos)
+function lerValorParcela() {
+  const parcelas = Math.max(1, parseInt(document.getElementById('f-parc').value) || 1);
+  const valor    = parseFloat(document.getElementById('f-val').value);
+  const tipo     = document.getElementById('f-tipo-val').value;
+  if (!valor || valor <= 0) return null;
+  const parcela  = tipo === 'total' ? valor / parcelas : valor;
+  return { parcelas, valorParcela: Math.round(parcela * 100) / 100 };
+}
+
+window.updateValorHint = function () {
+  const hint = document.getElementById('f-val-hint');
+  const v    = lerValorParcela();
+  if (!v) { hint.textContent = ''; return; }
+  hint.textContent = v.parcelas > 1
+    ? `${v.parcelas}x de R$ ${fmt(v.valorParcela)} = R$ ${fmt(v.valorParcela * v.parcelas)}`
+    : `À vista: R$ ${fmt(v.valorParcela)}`;
+};
 
 window.editCompra = function (id) {
   const c = S.compras.find(x => x.id === id);
@@ -480,15 +514,13 @@ window.saveCompra = async function () {
   const desc         = document.getElementById('f-desc').value.trim();
   const cat          = document.getElementById('f-cat').value;
   const data         = document.getElementById('f-data').value;
-  const parcelas     = Math.max(1, parseInt(document.getElementById('f-parc').value) || 1);
-  const valorParcela = parseFloat(document.getElementById('f-val').value);
+  const valor        = lerValorParcela();
 
-  if (!desc)                              return showErr('form-error', 'Preencha a descrição.');
-  if (!data)                              return showErr('form-error', 'Escolha a data.');
-  if (!valorParcela || valorParcela <= 0) return showErr('form-error', 'Informe o valor da parcela.');
+  if (!desc)  return showErr('form-error', 'Preencha a descrição.');
+  if (!data)  return showErr('form-error', 'Escolha a data.');
+  if (!valor) return showErr('form-error', 'Informe o valor.');
 
-  // valor arredondado em centavos para evitar resíduos de ponto flutuante
-  const payload = { desc, cat, data, parcelas, valorParcela: Math.round(valorParcela * 100) / 100 };
+  const payload = { desc, cat, data, ...valor };
 
   showLoading();
   try {
@@ -549,7 +581,7 @@ window.renameCat = async function (i, input) {
     for (let k = 0; k < snap.docs.length; k += 500) {
       const batch = writeBatch(db);
       snap.docs.slice(k, k + 500).forEach(d => batch.update(d.ref, { cat: newName }));
-      await batch.commit();
+      await gravar(batch.commit());
     }
   } catch (e) {
     S.categorias[i].name = oldName;
