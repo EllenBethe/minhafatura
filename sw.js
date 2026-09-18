@@ -1,17 +1,27 @@
-const CACHE = 'minhafatura-v1';
+// Aumente a versão a cada deploy para descartar o cache antigo
+const CACHE = 'minhafatura-v3';
+// Recursos externos com URL versionada/imutável: cache-first
+const CDN_PREFIXES = [
+  'https://www.gstatic.com/firebasejs/',
+  'https://fonts.googleapis.com/',
+  'https://fonts.gstatic.com/',
+];
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/app.js',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
 ];
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    // Um arquivo por vez: uma falha isolada não impede a instalação (addAll é tudo-ou-nada)
+    caches.open(CACHE)
+      .then(c => Promise.all(ASSETS.map(u => c.add(u).catch(e => console.warn('SW: não cacheou', u, e)))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -24,9 +34,36 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Só cacheia requests do mesmo domínio (não Firebase)
-  if (!e.request.url.startsWith(self.location.origin)) return;
+  if (e.request.method !== 'GET') return;
+  const url = e.request.url;
+
+  // SDK do Firebase e fontes: cache-first (o app precisa deles para abrir offline)
+  if (CDN_PREFIXES.some(p => url.startsWith(p))) {
+    e.respondWith(
+      caches.match(e.request).then(cached => cached || fetch(e.request).then(res => {
+        if (res.ok || res.type === 'opaque') {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+        }
+        return res;
+      }))
+    );
+    return;
+  }
+
+  // Demais domínios (APIs do Firebase) passam direto
+  if (!url.startsWith(self.location.origin)) return;
+
+  // Arquivos do app: network-first, sempre tenta a versão mais nova e usa o cache só offline
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    fetch(e.request)
+      .then(res => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });

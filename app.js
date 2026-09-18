@@ -14,7 +14,9 @@ import {
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   doc,
   getDoc,
   setDoc,
@@ -25,6 +27,9 @@ import {
   onSnapshot,
   query,
   orderBy,
+  where,
+  getDocs,
+  writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // ============================================================
@@ -42,7 +47,10 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
-const db    = getFirestore(fbApp);
+// Cache local: o app abre e aceita lançamentos offline, sincronizando ao voltar a conexão
+const db    = initializeFirestore(fbApp, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 
 // ============================================================
 //  ESTADO LOCAL
@@ -69,8 +77,8 @@ const DEFAULT_CATEGORIAS = [
   { emoji: '🔧', name: 'Manutenção do Carro' },
   { emoji: '🍔', name: 'Alimentação' },
   { emoji: '🛒', name: 'Mercado' },
-  { emoji: '👗', name: 'Ellen' },
-  { emoji: '🎮', name: 'Gabriel' },
+  { emoji: '👗', name: 'Vestuário' },
+  { emoji: '🎮', name: 'Lazer' },
   { emoji: '💊', name: 'Saúde' },
   { emoji: '📦', name: 'Outros' },
 ];
@@ -80,15 +88,33 @@ const DEFAULT_CATEGORIAS = [
 // ============================================================
 function showLoading() { document.getElementById('loading').style.display = 'flex'; }
 function hideLoading() { document.getElementById('loading').style.display = 'none'; }
-function showErr(elId, msg) {
+function showErr(elId, msg, ok = false) {
   const el = document.getElementById(elId);
   if (!el) return;
   el.textContent = msg;
+  el.classList.toggle('ok', ok);
   el.style.display = 'block';
   setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
 function fmt(v) {
   return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+// Offline, as escritas do Firestore só resolvem quando a conexão volta:
+// nesse caso não esperamos (o cache local já reflete a mudança) e só avisamos se falhar
+function gravar(promise) {
+  if (navigator.onLine) return promise;
+  promise.catch(e => alert('Erro ao sincronizar: ' + e.message));
+  return Promise.resolve();
+}
+// Escapa texto do usuário antes de inserir via innerHTML
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, ch =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+}
+// Data de hoje no fuso local (toISOString usa UTC e vira o dia após 21h no Brasil)
+function hojeISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 // ============================================================
@@ -100,17 +126,17 @@ async function loadUserConfig() {
   if (snap.exists()) {
     const d = snap.data();
     S.fechamento = d.fechamento ?? 10;
-    S.categorias = d.categorias ?? DEFAULT_CATEGORIAS;
+    S.categorias = d.categorias ?? DEFAULT_CATEGORIAS.map(c => ({ ...c }));
   } else {
     S.fechamento = 10;
-    S.categorias = [...DEFAULT_CATEGORIAS];
+    S.categorias = DEFAULT_CATEGORIAS.map(c => ({ ...c }));
     await saveUserConfig();
   }
 }
 
 async function saveUserConfig() {
   const ref = doc(db, 'users', currentUser.uid);
-  await setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias }, { merge: true });
+  await gravar(setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias }, { merge: true }));
 }
 
 // ============================================================
@@ -124,15 +150,16 @@ function listenCompras() {
   );
   unsubCompras = onSnapshot(q, (snap) => {
     S.compras = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    buildFatNav();
-    buildFatFilter();
     renderHome();
+  }, (e) => {
+    console.error(e);
+    alert('Erro ao carregar compras: ' + e.message);
   });
 }
 
-async function addCompraFirestore(c)      { await addDoc(collection(db, 'users', currentUser.uid, 'compras'), c); }
-async function updateCompraFirestore(id, c) { await updateDoc(doc(db, 'users', currentUser.uid, 'compras', id), c); }
-async function deleteCompraFirestore(id)  { await deleteDoc(doc(db, 'users', currentUser.uid, 'compras', id)); }
+async function addCompraFirestore(c)      { await gravar(addDoc(collection(db, 'users', currentUser.uid, 'compras'), c)); }
+async function updateCompraFirestore(id, c) { await gravar(updateDoc(doc(db, 'users', currentUser.uid, 'compras', id), c)); }
+async function deleteCompraFirestore(id)  { await gravar(deleteDoc(doc(db, 'users', currentUser.uid, 'compras', id))); }
 
 // ============================================================
 //  AUTH
@@ -159,7 +186,7 @@ window.doRegister = async function () {
 window.doReset = async function () {
   const email = document.getElementById('l-email').value.trim();
   if (!email) return showErr('login-error', 'Digite seu e-mail para redefinir a senha.');
-  try { await sendPasswordResetEmail(auth, email); showErr('login-error', '✅ E-mail enviado!'); }
+  try { await sendPasswordResetEmail(auth, email); showErr('login-error', '✅ E-mail enviado!', true); }
   catch (e) { showErr('login-error', traduzirErroAuth(e.code)); }
 };
 
@@ -185,7 +212,13 @@ onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
     showLoading();
-    await loadUserConfig();
+    try {
+      await loadUserConfig();
+    } catch (e) {
+      hideLoading();
+      alert('Erro ao carregar sua conta: ' + e.message);
+      return;
+    }
     listenCompras();
     const init = user.email.split('@')[0].slice(0, 2).toUpperCase();
     document.getElementById('av').textContent      = init;
@@ -231,7 +264,7 @@ window.goSett = function () {
 //  LÓGICA DE FATURA + PARCELAMENTO
 //
 //  Uma compra de N parcelas aparece em N faturas consecutivas.
-//  fatKey salvo no Firestore = fatura da PRIMEIRA parcela.
+//  fatKeyOf() = fatura da PRIMEIRA parcela (derivada da data).
 //  getAllFatKeys() gera todas as faturas que a compra ocupa.
 // ============================================================
 function getFatKey(dateStr) {
@@ -241,6 +274,12 @@ function getFatKey(dateStr) {
     return nd.getFullYear() + '-' + String(nd.getMonth() + 1).padStart(2, '0');
   }
   return y + '-' + String(m).padStart(2, '0');
+}
+
+// Fatura da 1ª parcela, sempre recalculada a partir da data da compra
+// (assim mudar o dia de fechamento reposiciona as compras antigas)
+function fatKeyOf(c) {
+  return c.data ? getFatKey(c.data) : c.fatKey;
 }
 
 function fatLabel(key) {
@@ -279,27 +318,28 @@ function getActiveFats() {
   }
   // inclui todos os meses com parcelas em andamento
   S.compras.forEach(c => {
-    getAllFatKeys(c.fatKey, c.parcelas).forEach(k => keys.add(k));
+    getAllFatKeys(fatKeyOf(c), c.parcelas).forEach(k => keys.add(k));
   });
   return [...keys].sort();
 }
 
 // Compras que aparecem em uma fatura (inclui parceladas de meses anteriores)
 function getComprasDaFatura(fatKey) {
-  return S.compras.filter(c => getAllFatKeys(c.fatKey, c.parcelas).includes(fatKey));
+  return S.compras.filter(c => getAllFatKeys(fatKeyOf(c), c.parcelas).includes(fatKey));
 }
 
 function buildFatNav() {
   const keys = getActiveFats();
   if (!S.faturaAtiva || !keys.includes(S.faturaAtiva)) {
-    const now = new Date();
-    const cur = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+    // Fatura aberta hoje (após o fechamento, já é a do mês seguinte)
+    const cur = getFatKey(hojeISO());
     S.faturaAtiva = keys.includes(cur) ? cur : keys[0];
   }
   const nav = document.getElementById('fat-nav');
   if (!nav) return;
   nav.innerHTML = keys.map(k =>
-    `<div class="fat-chip ${k === S.faturaAtiva ? 'active' : ''}" onclick="selFat('${k}')">${fatLabel(k)}</div>`
+    `<button type="button" class="fat-chip ${k === S.faturaAtiva ? 'active' : ''}" onclick="selFat('${k}')"
+       aria-pressed="${k === S.faturaAtiva}" aria-label="Fatura de ${fatLabelFull(k)}">${fatLabel(k)}</button>`
   ).join('');
   setTimeout(() => {
     const active = nav.querySelector('.fat-chip.active');
@@ -320,7 +360,6 @@ window.selFat = function (k) {
   S.faturaAtiva = k;
   const sel = document.getElementById('fil-fatura');
   if (sel) sel.value = k;
-  buildFatNav();
   renderHome();
 };
 
@@ -335,6 +374,7 @@ window.onFatFilterChange = function () {
 function renderHome() {
   if (!document.getElementById('scr-home').classList.contains('active')) return;
   buildFatNav();
+  buildFatFilter();
 
   const fat = S.faturaAtiva;
   if (!fat) return;
@@ -357,7 +397,7 @@ function renderHome() {
   } else {
     resumoEl.innerHTML = catKeys.map(k => {
       const cat = S.categorias.find(c => c.name === k);
-      return `<div class="cat-resumo-row"><span>${cat?.emoji || ''} ${k}</span><b>R$ ${fmt(catMap[k])}</b></div>`;
+      return `<div class="cat-resumo-row"><span>${esc(cat?.emoji || '')} ${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></div>`;
     }).join('');
   }
 
@@ -379,9 +419,9 @@ function renderHome() {
 
   list.innerHTML = [...compras].map(c => {
     const cat      = S.categorias.find(x => x.name === c.cat) || { emoji: '📦' };
-    const allKeys  = getAllFatKeys(c.fatKey, c.parcelas);
+    const allKeys  = getAllFatKeys(fatKeyOf(c), c.parcelas);
     const parAtual = allKeys.indexOf(fat) + 1;
-    const endKey   = getEndFatKey(c.fatKey, c.parcelas);
+    const endKey   = getEndFatKey(fatKeyOf(c), c.parcelas);
     const parLabel = c.parcelas > 1 ? `Parcela ${parAtual} de ${c.parcelas}` : 'À vista';
     const finLabel = c.parcelas > 1 ? `Finaliza: ${fatLabelFull(endKey)}` : '';
     const pct      = c.parcelas > 1 ? Math.min(100, Math.round((parAtual / c.parcelas) * 100)) : 100;
@@ -389,14 +429,14 @@ function renderHome() {
     return `<div class="compra-card">
       <div class="cc-top">
         <div class="cc-badges">
-          <div class="cc-badge">${cat.emoji} ${c.cat}</div>
+          <div class="cc-badge">${esc(cat.emoji)} ${esc(c.cat)}</div>
         </div>
         <div class="cc-actions">
-          <button class="cc-act-btn" onclick="editCompra('${c.id}')">✏️</button>
-          <button class="cc-act-btn" onclick="confirmDelete('${c.id}')">🗑️</button>
+          <button class="cc-act-btn" onclick="editCompra('${c.id}')" aria-label="Editar">✏️</button>
+          <button class="cc-act-btn" onclick="confirmDelete('${c.id}')" aria-label="Remover">🗑️</button>
         </div>
       </div>
-      <div class="cc-nome">${c.desc}</div>
+      <div class="cc-nome">${esc(c.desc)}</div>
       <div class="cc-mid">
         <div class="cc-meta">
           <div class="cc-parcela-txt">${parLabel}</div>
@@ -415,7 +455,7 @@ function renderHome() {
 function buildCatSelect() {
   const cs = document.getElementById('f-cat');
   if (cs) cs.innerHTML = S.categorias.map(c =>
-    `<option value="${c.name}">${c.emoji} ${c.name}</option>`
+    `<option value="${esc(c.name)}">${esc(c.emoji)} ${esc(c.name)}</option>`
   ).join('');
 }
 
@@ -428,10 +468,31 @@ function openAddForm(compra) {
   document.getElementById('form-title').textContent = compra ? 'Editar compra' : 'Nova compra';
   document.getElementById('f-desc').value           = compra?.desc || '';
   document.getElementById('f-cat').value            = compra?.cat  || S.categorias[0]?.name || '';
-  document.getElementById('f-data').value           = compra?.data || new Date().toISOString().split('T')[0];
+  document.getElementById('f-data').value           = compra?.data || hojeISO();
   document.getElementById('f-parc').value           = compra?.parcelas      || 1;
+  document.getElementById('f-tipo-val').value       = 'parcela';
   document.getElementById('f-val').value            = compra?.valorParcela  || '';
+  updateValorHint();
 }
+
+// Converte o valor digitado em valor da parcela (arredondado em centavos)
+function lerValorParcela() {
+  const parcelas = Math.max(1, parseInt(document.getElementById('f-parc').value) || 1);
+  const valor    = parseFloat(document.getElementById('f-val').value);
+  const tipo     = document.getElementById('f-tipo-val').value;
+  if (!valor || valor <= 0) return null;
+  const parcela  = tipo === 'total' ? valor / parcelas : valor;
+  return { parcelas, valorParcela: Math.round(parcela * 100) / 100 };
+}
+
+window.updateValorHint = function () {
+  const hint = document.getElementById('f-val-hint');
+  const v    = lerValorParcela();
+  if (!v) { hint.textContent = ''; return; }
+  hint.textContent = v.parcelas > 1
+    ? `${v.parcelas}x de R$ ${fmt(v.valorParcela)} = R$ ${fmt(v.valorParcela * v.parcelas)}`
+    : `À vista: R$ ${fmt(v.valorParcela)}`;
+};
 
 window.editCompra = function (id) {
   const c = S.compras.find(x => x.id === id);
@@ -453,22 +514,20 @@ window.saveCompra = async function () {
   const desc         = document.getElementById('f-desc').value.trim();
   const cat          = document.getElementById('f-cat').value;
   const data         = document.getElementById('f-data').value;
-  const parcelas     = Math.max(1, parseInt(document.getElementById('f-parc').value) || 1);
-  const valorParcela = parseFloat(document.getElementById('f-val').value);
+  const valor        = lerValorParcela();
 
-  if (!desc)                              return showErr('form-error', 'Preencha a descrição.');
-  if (!data)                              return showErr('form-error', 'Escolha a data.');
-  if (!valorParcela || valorParcela <= 0) return showErr('form-error', 'Informe o valor da parcela.');
+  if (!desc)  return showErr('form-error', 'Preencha a descrição.');
+  if (!data)  return showErr('form-error', 'Escolha a data.');
+  if (!valor) return showErr('form-error', 'Informe o valor.');
 
-  const fatKey  = getFatKey(data);
-  const payload = { desc, cat, data, parcelas, valorParcela, fatKey };
+  const payload = { desc, cat, data, ...valor };
 
   showLoading();
   try {
     const editId = document.getElementById('edit-id').value;
     if (editId) { await updateCompraFirestore(editId, payload); }
     else        { await addCompraFirestore(payload); }
-    S.faturaAtiva = fatKey;
+    S.faturaAtiva = getFatKey(data);
     goHome();
   } catch (e) {
     showErr('form-error', 'Erro ao salvar: ' + e.message);
@@ -484,7 +543,6 @@ window.saveFech = async function () {
   if (v >= 1 && v <= 31) {
     S.fechamento = v;
     await saveUserConfig();
-    buildFatNav();
     renderHome();
   }
 };
@@ -497,14 +555,50 @@ function buildCatList() {
   if (!el) return;
   el.innerHTML = S.categorias.map((c, i) => `
     <div class="resp-item">
-      <span style="font-size:18px;width:24px;text-align:center;">${c.emoji}</span>
-      <input class="resp-name-inp" value="${c.name}"
-        onchange="S.categorias[${i}].name=this.value;saveUserConfig();buildCatSelect();" />
-      <button class="btn-del" onclick="removeCat(${i})">✕</button>
+      <span style="font-size:18px;width:24px;text-align:center;">${esc(c.emoji)}</span>
+      <input class="resp-name-inp" value="${esc(c.name)}" onchange="renameCat(${i}, this)" />
+      <button class="btn-del" onclick="removeCat(${i})" aria-label="Remover categoria">✕</button>
     </div>`).join('');
 }
 
+// Renomeia a categoria e leva junto as compras que usam o nome antigo
+window.renameCat = async function (i, input) {
+  const oldName = S.categorias[i].name;
+  const newName = input.value.trim();
+  if (!newName || newName === oldName) { input.value = oldName; return; }
+  if (S.categorias.some(c => c.name === newName)) {
+    alert('Já existe uma categoria com esse nome.');
+    input.value = oldName;
+    return;
+  }
+  showLoading();
+  try {
+    S.categorias[i].name = newName;
+    await saveUserConfig();
+    const comprasRef = collection(db, 'users', currentUser.uid, 'compras');
+    const snap = await getDocs(query(comprasRef, where('cat', '==', oldName)));
+    // writeBatch aceita até 500 operações
+    for (let k = 0; k < snap.docs.length; k += 500) {
+      const batch = writeBatch(db);
+      snap.docs.slice(k, k + 500).forEach(d => batch.update(d.ref, { cat: newName }));
+      await gravar(batch.commit());
+    }
+  } catch (e) {
+    S.categorias[i].name = oldName;
+    input.value = oldName;
+    alert('Erro ao renomear: ' + e.message);
+  }
+  hideLoading();
+  buildCatSelect();
+};
+
 window.removeCat = async function (i) {
+  const name  = S.categorias[i].name;
+  const emUso = S.compras.filter(c => c.cat === name).length;
+  const msg   = emUso
+    ? `A categoria "${name}" tem ${emUso} compra(s). Elas continuarão com esse nome. Remover mesmo assim?`
+    : `Remover a categoria "${name}"?`;
+  if (!confirm(msg)) return;
   S.categorias.splice(i, 1);
   await saveUserConfig();
   buildCatList();
@@ -515,6 +609,7 @@ window.addCat = async function () {
   const e = document.getElementById('new-cat-e').value.trim() || '🏷️';
   const n = document.getElementById('new-cat-n').value.trim();
   if (!n) return;
+  if (S.categorias.some(c => c.name === n)) return alert('Já existe uma categoria com esse nome.');
   S.categorias.push({ emoji: e, name: n });
   document.getElementById('new-cat-n').value = '';
   await saveUserConfig();
@@ -522,9 +617,14 @@ window.addCat = async function () {
   buildCatSelect();
 };
 
-window.saveUserConfig = saveUserConfig;
-
 document.addEventListener('DOMContentLoaded', () => {
   const fd = document.getElementById('f-data');
-  if (fd) fd.value = new Date().toISOString().split('T')[0];
+  if (fd) fd.value = hojeISO();
 });
+
+// ============================================================
+//  PWA — service worker
+// ============================================================
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW não registrado:', e));
+}

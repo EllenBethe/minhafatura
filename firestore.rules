@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// Espelho das regras publicadas no console do Firebase (Firestore → Regras).
+// Ao alterar aqui, publique também no console ou com `firebase deploy --only firestore:rules`.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Cada usuário acessa SOMENTE os próprios dados
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /compras/{compraId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+}
