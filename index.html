@@ -183,8 +183,8 @@
       <h3>Categorias</h3>
       <div id="cat-list-s"></div>
       <div class="add-row">
-        <input class="inp" id="new-cat-e" placeholder="🏷️" style="width:48px;text-align:center;" aria-label="Emoji" />
-        <input class="inp" id="new-cat-n" placeholder="Nome da categoria" style="flex:1;" aria-label="Nome da nova categoria" />
+        <span class="cat-chip" id="new-cat-ic" aria-hidden="true"></span>
+        <input class="inp" id="new-cat-n" placeholder="Nome da categoria" style="flex:1;" aria-label="Nome da nova categoria" data-input="previewIconeNovo" />
         <button type="button" class="btn-sm" data-action="addCat" aria-label="Adicionar categoria">+</button>
       </div>
     </div>
@@ -238,6 +238,17 @@
     <span class="nav-lbl">Config</span>
   </button>
 </nav>
+
+<!-- SELETOR DE ÍCONE -->
+<div id="icon-picker" class="sheet" style="display:none;" data-action="fecharIcones">
+  <div class="sheet-box" role="dialog" aria-modal="true" aria-labelledby="ip-tit" data-action="nada">
+    <div class="sheet-top">
+      <div class="sheet-tit" id="ip-tit">Ícone</div>
+      <button type="button" class="back-btn" data-action="fecharIcones" aria-label="Fechar">✕</button>
+    </div>
+    <div class="ip-grid" id="ip-grid"></div>
+  </div>
+</div>
 
 <!-- LOADING OVERLAY -->
 <div id="loading" class="loading-overlay" style="display:none;">
