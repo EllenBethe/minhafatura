@@ -107,3 +107,37 @@ test('gráfico: categoria com saldo negativo no mês não desenha abaixo de zero
   const m = modeloGrafico(compras, 10, '2026-09', { antes: 0, depois: 0 });
   assert.ok(m.series.every(s => s.valores.every(v => v >= 0)));
 });
+
+test('textoParaRegra: marca da loja, pulando prefixos de maquininha', async () => {
+  const { textoParaRegra } = await import('../js/importar.js');
+  const casos = {
+    'Shopee *Babylovecalcad': 'shopee',
+    'Shopee*F N F Comercio': 'shopee',
+    'Ec *Shellbox': 'shellbox',
+    'Zp *Correa Materiais e - Parcela 1/8': 'correa materiais',
+    'Ifd*Blumenau Gastronom': 'ifd*',
+    'Mercadolivre*Minagua': 'mercadolivre',
+    'Giassi Supermercados': 'giassi supermercados',
+    'Casa do Strudel': 'casa do strudel',
+    'Amazon - Parcela 3/7': 'amazon',
+    'Renner': 'renner',
+    'Zero3games *Z07873413 - Parcela 1/6': 'zero3games',
+    'Pg *Arco - Lne - Parcela 8/10': 'arco',
+  };
+  for (const [desc, esperado] of Object.entries(casos)) assert.equal(textoParaRegra(desc), esperado, desc);
+});
+
+test('a regra sugerida casa com a própria compra', async () => {
+  const { textoParaRegra, regraDaUsuaria } = await import('../js/importar.js');
+  for (const desc of ['Shopee *Loja', 'Ec *Shellbox', 'Casa do Strudel', 'Ifd*Pizzaria', 'Zp *Correa Materiais e']) {
+    assert.equal(regraDaUsuaria(desc, [{ contem: textoParaRegra(desc), cat: 'X' }], ['X']), 'X', desc);
+  }
+});
+
+test('compararComAnterior: diferença e % por categoria', async () => {
+  const { compararComAnterior } = await import('../js/fatura.js');
+  const r = compararComAnterior({ Mercado: 590, Gasolina: 300, Pet: 50 }, { Mercado: 500, Gasolina: 400 });
+  assert.deepEqual(r.Mercado, { anterior: 500, dif: 90, pct: 18 });
+  assert.deepEqual(r.Gasolina, { anterior: 400, dif: -100, pct: -25 });
+  assert.deepEqual(r.Pet, { anterior: 0, dif: 50, pct: null });
+});

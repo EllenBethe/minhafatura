@@ -13,6 +13,7 @@
   <meta name="apple-mobile-web-app-title" content="MinhaFatura" />
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="icon" type="image/png" href="icon-192.png" />
 
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css?v=8" />
@@ -259,6 +260,20 @@
     <span class="nav-lbl">Config</span>
   </button>
 </nav>
+
+<!-- TROCA RÁPIDA DE CATEGORIA -->
+<div id="cat-picker" class="sheet" style="display:none;" data-action="fecharCatRapida">
+  <div class="sheet-box" role="dialog" aria-modal="true" aria-labelledby="cp-tit" data-action="nada">
+    <div class="sheet-top">
+      <div class="sheet-tit" id="cp-tit"></div>
+      <button type="button" class="back-btn" data-action="fecharCatRapida" aria-label="Fechar" data-ico="x"></button>
+    </div>
+    <div class="ip-sec">Mover para a categoria</div>
+    <div class="cp-lista" id="cp-lista"></div>
+    <label class="chk" id="cp-regra-linha" style="margin-top:12px;"><input type="checkbox" id="cp-regra" />
+      <span>Criar regra: nome contém “<b id="cp-regra-txt"></b>”</span></label>
+  </div>
+</div>
 
 <!-- SELETOR DE ÍCONE -->
 <div id="icon-picker" class="sheet" style="display:none;" data-action="fecharIcones">

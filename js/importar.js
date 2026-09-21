@@ -335,3 +335,26 @@ export function sugerirFechamento(linhas) {
 export function limparDesc(desc) {
   return String(desc).replace(/\s*[-–]?\s*(parcela|parc\.?)?\s*\d{1,2}\s*\/\s*\d{1,2}\s*$/i, '').trim() || String(desc).trim();
 }
+
+// Texto sugerido para uma regra a partir do nome da compra ("Shopee *Loja X" → "shopee",
+// "Ec *Shellbox" → "shellbox", "Giassi Supermercados" → "giassi supermercados").
+// Prefixos de maquininha/intermediador (Ec, Pg, Zp...) são pulados.
+const PREFIXOS_GENERICOS = new Set(['ec', 'pg', 'pgz', 'zp', 'br1', 'nuv', 'bel', 'jim.com', 'valorem', 'asaas', 'mp', 'pag', 'pagseguro', 'sumup', 'stone', 'cielo', 'iz', 'ton']);
+export function textoParaRegra(desc) {
+  const s = semAcento(limparDesc(desc)).replace(/\s+/g, ' ').trim();
+  const partes = s.split(/\s*\*\s*|\s+-\s+/).map(p => p.trim()).filter(Boolean);
+  if (/^ifd$/.test(partes[0])) return 'ifd*';                        // iFood: "Ifd*Loja"
+  const parte = partes.find(p => !PREFIXOS_GENERICOS.has(p) && !/^\d+$/.test(p)) || partes[0] || '';
+  if (partes.length > 1 && parte === partes[0]) return parte.split(' ')[0];   // "shopee *x" → "shopee"
+  // sem separador: até 2 palavras "de verdade" (≥ 3 letras), mantendo as curtas do meio ("casa do strudel")
+  const palavras = parte.split(' ').filter(w => !/\d/.test(w));
+  const saida = [];
+  let fortes = 0;
+  for (const w of palavras) {
+    saida.push(w);
+    if (w.length >= 3) fortes++;
+    if (fortes === 2) break;
+  }
+  while (saida.length && saida.at(-1).length < 3) saida.pop();
+  return saida.join(' ').slice(0, 30);
+}
