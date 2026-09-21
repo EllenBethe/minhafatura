@@ -42,6 +42,7 @@ import {
 import { decodificarArquivo, lerArquivo, prepararImportacao, sugerirFechamento, categoriaPorNome } from './js/importar.js?v=8';
 import { csvCompras, csvLancamentos } from './js/exportar.js?v=8';
 import { modeloGrafico, svgGrafico } from './js/grafico.js?v=8';
+import { ICONES, iconeDe, iconePorNome, svgIcone } from './js/icones.js?v=8';
 
 // ============================================================
 //  FIREBASE
@@ -76,25 +77,27 @@ const S = {
   grafSel: null,     // fatura selecionada no gráfico
   imp: null,         // importação em andamento: { linhas, itens, ignorados, nome }
   catEscolhidaForm: false,   // categoria do formulário escolhida à mão (para de sugerir)
+  iconeCat: null,            // índice da categoria com o seletor de ícone aberto
 };
 
 const DEFAULT_CATEGORIAS = [
-  { emoji: '📱', name: 'Assinaturas' },
-  { emoji: '🚗', name: 'Seguro Carro' },
-  { emoji: '🏠', name: 'Seguro Casa' },
-  { emoji: '🏡', name: 'Conjunto/Casa' },
-  { emoji: '🔧', name: 'Manutenção do Carro' },
-  { emoji: '🍔', name: 'Alimentação' },
-  { emoji: '🛒', name: 'Mercado' },
-  { emoji: '👗', name: 'Vestuário' },
-  { emoji: '🎮', name: 'Lazer' },
-  { emoji: '💊', name: 'Saúde' },
-  { emoji: '📦', name: 'Outros' },
+  { name: 'Assinaturas' },
+  { name: 'Seguro Carro' },
+  { name: 'Seguro Casa' },
+  { name: 'Conjunto/Casa' },
+  { name: 'Manutenção do Carro' },
+  { name: 'Alimentação' },
+  { name: 'Mercado' },
+  { name: 'Vestuário' },
+  { name: 'Lazer' },
+  { name: 'Saúde' },
+  { name: 'Outros' },
 ];
 
 const $ = id => document.getElementById(id);
 const faturaAberta = () => getFatKey(hojeISO(), S.fechamento);
-const emojiDe = nome => S.categorias.find(c => c.name === nome)?.emoji || '📦';
+// Ícone SVG da categoria (escolhido em Config ou automático pelo nome)
+const icoDe = (nome, classe) => svgIcone(iconeDe(S.categorias.find(c => c.name === nome) || { name: nome }), classe);
 const maiuscula = s => s.charAt(0).toUpperCase() + s.slice(1);
 
 // ============================================================
@@ -246,7 +249,7 @@ function buildCatFilter() {
   S.compras.forEach(c => { if (c.cat && !nomes.includes(c.cat)) nomes.push(c.cat); });
   if (atual && !nomes.includes(atual)) nomes.push(atual);
   sel.innerHTML = '<option value="">Todas as categorias</option>' +
-    nomes.map(n => `<option value="${esc(n)}">${esc(emojiDe(n))} ${esc(n)}</option>`).join('');
+    nomes.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
   sel.value = atual;
 }
 
@@ -277,7 +280,7 @@ function renderHome() {
     ? '<div class="cat-resumo-vazio">Sem lançamentos</div>'
     : catKeys.map(k => `<button type="button" class="cat-resumo-row ${k === filCat ? 'active' : ''}" data-action="filtrarCat"
         data-cat="${esc(k)}" aria-pressed="${k === filCat}">
-        <span>${esc(emojiDe(k))} ${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></button>`).join('');
+        <span>${icoDe(k, 'ic ic-resumo')}${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></button>`).join('');
 
   const total = arred(Object.values(catMap).reduce((a, b) => a + b, 0));
   $('fat-total').textContent = `R$ ${fmt(total)}`;
@@ -306,15 +309,18 @@ function renderHome() {
 
     return `<div class="compra-card">
       <div class="cc-top">
-        <div class="cc-badges">
-          <div class="cc-badge">${esc(emojiDe(c.cat))} ${esc(c.cat)}</div>
+        <div class="cc-head">
+          <span class="cat-chip">${icoDe(c.cat)}</span>
+          <div class="cc-tit">
+            <div class="cc-nome">${esc(c.desc)}</div>
+            <div class="cc-cat">${esc(c.cat)}</div>
+          </div>
         </div>
         <div class="cc-actions">
           <button type="button" class="cc-act-btn" data-action="editCompra" data-id="${esc(c.id)}" aria-label="Editar">✏️</button>
           <button type="button" class="cc-act-btn" data-action="confirmDelete" data-id="${esc(c.id)}" aria-label="Remover">🗑️</button>
         </div>
       </div>
-      <div class="cc-nome">${esc(c.desc)}</div>
       <div class="cc-mid">
         <div class="cc-meta">
           <div class="cc-parcela-txt">${parLabel}</div>
@@ -332,7 +338,7 @@ function renderHome() {
 // ============================================================
 function buildCatSelect() {
   $('f-cat').innerHTML = S.categorias.map(c =>
-    `<option value="${esc(c.name)}">${esc(c.emoji)} ${esc(c.name)}</option>`).join('');
+    `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
 }
 
 function openAddForm(compra) {
@@ -365,7 +371,7 @@ function lerValorParcela() {
 function buildCatList() {
   $('cat-list-s').innerHTML = S.categorias.map((c, i) => `
     <div class="resp-item">
-      <span class="cat-emoji">${esc(c.emoji)}</span>
+      <button type="button" class="cat-chip cat-chip-btn" data-action="abrirIcones" data-i="${i}" aria-label="Trocar ícone de ${esc(c.name)}">${svgIcone(iconeDe(c))}</button>
       <input class="resp-name-inp" value="${esc(c.name)}" data-change="renameCat" data-i="${i}" aria-label="Nome da categoria" />
       <button type="button" class="btn-del" data-action="removeCat" data-i="${i}" aria-label="Remover categoria">✕</button>
     </div>`).join('');
@@ -481,7 +487,7 @@ function renderImport() {
     `<br>Selecionadas: <b>${marcados.length}</b> · R$ ${fmt(soma)} nesta fatura`;
 
   const opcoes = cat => S.categorias.map(c =>
-    `<option value="${esc(c.name)}" ${c.name === cat ? 'selected' : ''}>${esc(c.emoji)} ${esc(c.name)}</option>`).join('');
+    `<option value="${esc(c.name)}" ${c.name === cat ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
   lista.innerHTML = itens.map((it, i) => `
     <div class="imp-item${it.incluir ? '' : ' off'}">
       <label class="imp-check"><input type="checkbox" ${it.incluir ? 'checked' : ''} data-change="impToggle" data-i="${i}" aria-label="Importar ${esc(it.desc)}" /></label>
@@ -555,6 +561,7 @@ const ACOES = {
     $('s-user').textContent = currentUser?.email || '-';
     $('s-fech').value = S.fechamento;
     buildCatList();
+    ACOES.previewIconeNovo();
   },
   goImport() {
     S.imp = null;
@@ -664,14 +671,40 @@ const ACOES = {
     buildCatList(); buildCatSelect();
   },
   async addCat() {
-    const e = $('new-cat-e').value.trim() || '🏷️', n = $('new-cat-n').value.trim();
+    const n = $('new-cat-n').value.trim();
     if (!n) return;
     if (S.categorias.some(c => c.name === n)) return alert('Já existe uma categoria com esse nome.');
-    S.categorias.push({ emoji: e, name: n });
+    S.categorias.push({ name: n });
     $('new-cat-n').value = '';
+    ACOES.previewIconeNovo();
     await saveUserConfig();
     buildCatList(); buildCatSelect();
   },
+
+  // --- ícones das categorias ---
+  previewIconeNovo() { $('new-cat-ic').innerHTML = svgIcone(iconePorNome($('new-cat-n').value)); },
+  abrirIcones(el) {
+    S.iconeCat = +el.dataset.i;
+    const cat = S.categorias[S.iconeCat], atual = cat.icone && ICONES[cat.icone] ? cat.icone : '';
+    const auto = iconePorNome(cat.name);
+    $('ip-tit').textContent = 'Ícone de ' + cat.name;
+    $('ip-grid').innerHTML =
+      `<button type="button" class="ip-item${atual ? '' : ' sel'}" data-action="escolherIcone" data-key="" aria-pressed="${!atual}">
+         <span class="cat-chip">${svgIcone(auto)}</span><span>Automático</span></button>` +
+      Object.entries(ICONES).map(([k, [rotulo]]) =>
+        `<button type="button" class="ip-item${k === atual ? ' sel' : ''}" data-action="escolherIcone" data-key="${k}" aria-pressed="${k === atual}">
+           <span class="cat-chip">${svgIcone(k)}</span><span>${esc(rotulo)}</span></button>`).join('');
+    $('icon-picker').style.display = 'flex';
+  },
+  async escolherIcone(el) {
+    const cat = S.categorias[S.iconeCat];
+    if (el.dataset.key) cat.icone = el.dataset.key; else delete cat.icone;
+    $('icon-picker').style.display = 'none';
+    buildCatList();
+    await saveUserConfig();
+  },
+  fecharIcones() { $('icon-picker').style.display = 'none'; },
+  nada() {},   // cliques dentro da caixa do seletor não fecham o fundo
 
   // --- exportar ---
   exportCompras()     { compartilharArquivo(`minhafatura-compras-${hojeISO()}.csv`, csvCompras(S.compras, S.fechamento)); },

@@ -17,6 +17,7 @@ const ASSETS = [
   './js/importar.js?v=' + VERSION,
   './js/exportar.js?v=' + VERSION,
   './js/grafico.js?v=' + VERSION,
+  './js/icones.js?v=' + VERSION,
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
