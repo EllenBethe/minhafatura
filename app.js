@@ -46,6 +46,7 @@ import {
 } from './js/importar.js?v=8';
 import { csvCompras, csvLancamentos } from './js/exportar.js?v=8';
 import { modeloGrafico, svgGrafico } from './js/grafico.js?v=8';
+import { calcularMetas } from './js/metas.js?v=8';
 import {
   ICONES, CORES, iconeDe, iconePorNome, corDe, corDoIcone, chip, chipCategoria, preencherIconesUI, svgUI,
 } from './js/icones.js?v=8';
@@ -87,6 +88,7 @@ const S = {
   regras: [],                // regras da usuária: [{ contem, cat }]
   buscaTodas: false,         // busca em todas as faturas (e não só na aberta na tela)
   catRapida: null,           // id da compra com o seletor rápido de categoria aberto
+  metas: {},                 // { teto, vrva, vrvaEm, gasto (digitado; vazio = automático) }
 };
 
 const DEFAULT_CATEGORIAS = [
@@ -145,6 +147,7 @@ async function loadUserConfig() {
     S.fechamento = d.fechamento ?? 10;
     S.categorias = d.categorias ?? DEFAULT_CATEGORIAS.map(c => ({ ...c }));
     S.regras     = d.regras ?? [];
+    S.metas      = d.metas ?? {};
   } else {
     S.fechamento = 10;
     S.categorias = DEFAULT_CATEGORIAS.map(c => ({ ...c }));
@@ -154,7 +157,7 @@ async function loadUserConfig() {
 
 async function saveUserConfig() {
   const ref = doc(db, 'users', currentUser.uid);
-  await gravar(setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias, regras: S.regras }, { merge: true }));
+  await gravar(setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias, regras: S.regras, metas: S.metas }, { merge: true }));
 }
 
 function listenCompras() {
@@ -163,6 +166,7 @@ function listenCompras() {
     S.compras = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderHome();
     renderGrafico();
+    renderMetas();
     if ($('scr-sett').classList.contains('active')) buildImportacoes();
   }, (e) => {
     console.error(e);
@@ -319,6 +323,15 @@ function renderHome() {
 
   const total = arred(Object.values(catMap).reduce((a, b) => a + b, 0));
   $('fat-total').textContent = reais(total);
+  // Meta global (teto de gasto) da fatura exibida
+  const teto = S.metas.teto || 0, mf = $('meta-fatura');
+  mf.style.display = teto ? 'block' : 'none';
+  if (teto) {
+    const pct = Math.round(total / teto * 100), acima = total > teto;
+    mf.classList.toggle('acima', acima);
+    mf.innerHTML = `<span class="orc-bar"><i style="width:${Math.min(100, pct)}%"></i></span>
+      <small>${acima ? `▲ ${reais(total - teto)} acima da meta de ${reais(teto)}` : `${pct}% da meta de ${reais(teto)} · faltam ${reais(teto - total)}`}</small>`;
+  }
   const totalAnt = arred(Object.values(mapAnt).reduce((a, b) => a + b, 0));
   const difTotal = arred(total - totalAnt);
   $('fat-count').textContent = `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}` +
@@ -691,6 +704,55 @@ function renderCatRapida() {
 }
 
 // ============================================================
+//  METAS
+// ============================================================
+const totalFaturaAberta = () => arred(comprasDaFatura(S.compras, faturaAberta(), S.fechamento)
+  .reduce((a, c) => a + c.valorParcela, 0));
+const numeroDe = id => { const v = parseFloat($(id).value); return isNaN(v) ? null : v; };
+
+// preencher = true: copia os valores salvos para os campos (ao abrir a aba)
+function renderMetas(preencher = false) {
+  if (!$('scr-metas').classList.contains('active')) return;
+  const auto = totalFaturaAberta();
+  if (preencher) {
+    $('m-teto').value = S.metas.teto || '';
+    $('m-gasto').value = S.metas.gasto ?? '';
+    $('m-vrva').value = S.metas.vrva || '';
+  }
+  $('m-gasto').placeholder = `automático: ${fmt(auto)}`;
+  const gastoDigitado = numeroDe('m-gasto');
+  const gasto = gastoDigitado ?? auto;
+  $('m-gasto-origem').textContent = gastoDigitado === null ? '(fatura aberta)' : '(digitado)';
+  $('m-vrva-quando').textContent = S.metas.vrvaEm ? `(atualizado em ${new Date(S.metas.vrvaEm).toLocaleDateString('pt-BR')})` : '';
+
+  const teto = numeroDe('m-teto') || 0, vrva = numeroDe('m-vrva') || 0;
+  const r = calcularMetas({ teto, gasto, vrva, fechamento: S.fechamento });
+  const fechaEm = r.fecha.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const diasTxt = `${r.dias} dia${r.dias !== 1 ? 's' : ''}`;
+
+  $('meta-hero').innerHTML = teto ? `
+    <div class="mh-lbl">Você pode gastar por dia</div>
+    <div class="mh-val">${reais(r.porDia)}</div>
+    <div class="mh-sub">${reais(r.disponivel)} disponível · ${diasTxt} até o fechamento (${fechaEm})</div>
+    <span class="orc-bar mh-bar${r.gap < 0 ? ' acima' : ''}"><i style="width:${Math.min(100, r.pctTeto)}%"></i></span>
+    <div class="mh-sub">${r.pctTeto}% do teto usado</div>`
+    : `<div class="mh-lbl">Defina o teto de gasto no cartão</div>
+       <div class="mh-sub">para ver quanto você pode gastar por dia até o fechamento (${fechaEm}).</div>`;
+
+  const linha = (rotulo, valor, extra = '', classe = '') =>
+    `<div class="meta-linha ${classe}"><span>${rotulo}${extra ? ` <small>${extra}</small>` : ''}</span><b>${valor}</b></div>`;
+  $('meta-linhas').innerHTML = [
+    linha('Teto de gasto no cartão', teto ? reais(teto) : '—'),
+    linha('Gasto atual', reais(gasto), gastoDigitado === null ? 'fatura aberta' : 'digitado'),
+    linha('Gap (teto − gasto)', r.gap === null ? '—' : reais(r.gap), r.gap < 0 ? 'passou do teto' : '', r.gap < 0 ? 'neg' : ''),
+    linha('VR/VA', reais(vrva)),
+    linha('Total disponível', r.disponivel === null ? '—' : reais(r.disponivel), 'gap + VR/VA', 'destaque'),
+    linha('Dias até o fechamento', diasTxt, 'fecha em ' + fechaEm),
+    linha('Valor por dia', r.porDia === null ? '—' : reais(r.porDia), '', 'destaque'),
+  ].join('');
+}
+
+// ============================================================
 //  AÇÕES (despachadas por data-action / data-change / data-input)
 // ============================================================
 const ACOES = {
@@ -725,6 +787,7 @@ const ACOES = {
   goHome() { show('scr-home'); setNav('nb-home'); renderHome(); },
   goAdd()  { openAddForm(null); show('scr-form'); setNav('nb-add'); },
   goGraf() { show('scr-graf'); setNav('nb-graf'); renderGrafico(); },
+  goMetas() { show('scr-metas'); setNav('nb-metas'); renderMetas(true); },
   goSett() {
     show('scr-sett'); setNav('nb-sett');
     $('s-user').textContent = currentUser?.email || '-';
@@ -949,6 +1012,21 @@ const ACOES = {
     } catch (e) { alert('Erro ao trocar a categoria: ' + e.message); }
   },
   fecharCatRapida() { $('cat-picker').style.display = 'none'; },
+
+  // --- metas ---
+  atualizarMetas() { renderMetas(); },
+  async salvarMetas(el) {
+    const m = { ...S.metas };
+    const teto = numeroDe('m-teto'), gasto = numeroDe('m-gasto'), vrva = numeroDe('m-vrva');
+    if (teto > 0) m.teto = arred(teto); else delete m.teto;
+    if (gasto !== null) m.gasto = arred(gasto); else delete m.gasto;
+    if (el.id === 'm-vrva') {
+      if (vrva > 0) { m.vrva = arred(vrva); m.vrvaEm = new Date().toISOString(); } else { delete m.vrva; delete m.vrvaEm; }
+    }
+    S.metas = m;
+    renderMetas();
+    await saveUserConfig();
+  },
 
   // --- busca ---
   toggleBuscaTodas() { S.buscaTodas = !S.buscaTodas; renderHome(); },

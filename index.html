@@ -71,6 +71,7 @@
       <div class="cat-resumo" id="cat-resumo"></div>
       <div class="fatura-total" id="fat-total">R$ 0,00</div>
       <div class="fatura-count" id="fat-count">0 lançamentos</div>
+      <button type="button" class="meta-fatura" id="meta-fatura" data-action="goMetas" style="display:none;"></button>
     </div>
 
     <div class="filters">
@@ -154,6 +155,34 @@
         <summary>Ver como tabela</summary>
         <div class="graf-tabela" id="graf-tabela"></div>
       </details>
+    </div>
+  </div>
+
+  <!-- ===== METAS ===== -->
+  <div id="scr-metas" class="screen">
+    <div class="topbar">
+      <div class="topbar-logo">Metas</div>
+    </div>
+    <div class="meta-hero" id="meta-hero"></div>
+    <div class="sett-card">
+      <h3>Seus números</h3>
+      <label class="meta-campo" for="m-teto">
+        <span>Teto de gasto no cartão <small>(meta do mês)</small></span>
+        <span class="orc-row"><span>R$</span><input class="inp" type="number" id="m-teto" min="0" step="0.01" inputmode="decimal" placeholder="Ex.: 5000" data-input="atualizarMetas" data-change="salvarMetas" /></span>
+      </label>
+      <label class="meta-campo" for="m-gasto">
+        <span>Gasto atual <small id="m-gasto-origem"></small></span>
+        <span class="orc-row"><span>R$</span><input class="inp" type="number" id="m-gasto" min="0" step="0.01" inputmode="decimal" data-input="atualizarMetas" data-change="salvarMetas" /></span>
+      </label>
+      <label class="meta-campo" for="m-vrva">
+        <span>Saldo VR/VA <small id="m-vrva-quando"></small></span>
+        <span class="orc-row"><span>R$</span><input class="inp" type="number" id="m-vrva" min="0" step="0.01" inputmode="decimal" placeholder="0,00" data-input="atualizarMetas" data-change="salvarMetas" /></span>
+      </label>
+      <p class="graf-nota">Deixe o gasto atual vazio para usar o total da fatura aberta, que o app já soma sozinho.</p>
+    </div>
+    <div class="sett-card">
+      <h3>Resultado</h3>
+      <div id="meta-linhas"></div>
     </div>
   </div>
 
@@ -254,6 +283,10 @@
   <button type="button" class="nav-btn" id="nb-graf" data-action="goGraf">
     <span class="nav-ic" data-ico="chart-column" aria-hidden="true"></span>
     <span class="nav-lbl">Gráficos</span>
+  </button>
+  <button type="button" class="nav-btn" id="nb-metas" data-action="goMetas">
+    <span class="nav-ic" data-ico="target" aria-hidden="true"></span>
+    <span class="nav-lbl">Metas</span>
   </button>
   <button type="button" class="nav-btn" id="nb-sett" data-action="goSett">
     <span class="nav-ic" data-ico="settings" aria-hidden="true"></span>
