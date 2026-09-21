@@ -1,0 +1,15 @@
+{
+  "name": "minhafatura",
+  "private": true,
+  "type": "module",
+  "description": "PWA para controlar a fatura do cartão de crédito",
+  "scripts": {
+    "test": "node --test",
+    "versao": "node scripts/versao.mjs",
+    "serve": "npx serve .",
+    "deploy": "npx firebase-tools deploy --only hosting"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

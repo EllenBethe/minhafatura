@@ -1,0 +1,47 @@
+# Testes em todo push/PR. Publicação automática:
+#  - push no main  → publica em https://minhafatura.web.app
+#  - pull request  → publica numa prévia temporária e comenta o link no PR
+name: Testes e publicação
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  publicar:
+    needs: testes
+    runs-on: ubuntu-latest
+    # PRs vindos de forks não têm acesso ao segredo
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      pull-requests: write   # comentar o link da prévia
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Versão única por publicação: força o navegador/PWA a pegar os arquivos novos
+      - run: node scripts/versao.mjs $((100 + ${{ github.run_number }}))
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MINHAFATURA }}
+          projectId: minhafatura
+          channelId: ${{ github.event_name == 'push' && 'live' || '' }}
+          expires: 7d

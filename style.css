@@ -611,3 +611,93 @@ button.cat-resumo-row.active {
 .resp-name-inp {
   font-size: 16px;
 }
+
+/* ===== COMPONENTES NOVOS (v8) ===== */
+.btn-slim { padding: 11px; font-size: 14px; margin-top: 8px; }
+.btn-slim:first-of-type { margin-top: 0; }
+.cat-emoji { font-size: 18px; width: 24px; text-align: center; }
+.cat-resumo-vazio { font-size: 12px; color: rgba(255,255,255,0.4); text-align: center; padding: 4px 0; }
+
+/* ----- Gráficos ----- */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 8px 16px;
+}
+.kpi {
+  background: var(--card);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 10px 12px;
+}
+.kpi-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; line-height: 1.3; min-height: 26px; }
+.kpi-val { font-size: 15px; font-weight: 800; color: var(--white); margin-top: 4px; }
+
+.graf-legenda { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 8px; }
+.leg-item { font-size: 12px; color: var(--text); display: inline-flex; align-items: center; gap: 5px; }
+.leg-item i, .det-row i {
+  width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex-shrink: 0;
+}
+.graf-wrap svg { width: 100%; height: auto; display: block; }
+.graf-grade { stroke: var(--border); stroke-width: 1; }
+.graf-grade.base { stroke: var(--muted); }
+.graf-sep { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.graf-eixo { fill: var(--muted); font-size: 10px; font-family: inherit; }
+.graf-eixo.aberta { fill: var(--teal); font-weight: 700; }
+.graf-eixo.sel { fill: var(--white); font-weight: 700; }
+.graf-total { fill: var(--white); font-size: 11px; font-weight: 700; font-family: inherit; }
+.graf-sel { fill: rgba(255,255,255,0.05); stroke: var(--border); stroke-width: 1; pointer-events: none; }
+.graf-futura { opacity: 0.5; }
+.graf-nota { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+
+.graf-det .det-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+.det-tit { font-size: 15px; font-weight: 700; color: var(--white); }
+.det-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.det-total { font-size: 20px; font-weight: 800; color: var(--teal); }
+.det-row {
+  display: flex; justify-content: space-between; gap: 8px;
+  font-size: 13px; padding: 5px 0; border-bottom: 0.5px solid var(--border);
+}
+.det-row span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.det-row small { color: var(--muted); font-size: 11px; }
+.det-row b { color: var(--white); white-space: nowrap; }
+.graf-det .btn-slim { margin-top: 12px; }
+
+details summary { font-size: 13px; color: var(--teal); cursor: pointer; font-weight: 600; }
+.graf-tabela table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.graf-tabela th { text-align: left; color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; padding: 4px 0; }
+.graf-tabela td { padding: 6px 0; border-top: 0.5px solid var(--border); }
+.graf-tabela td:last-child, .graf-tabela th:last-child { text-align: right; }
+.graf-tabela tr.sel td { color: var(--teal); font-weight: 700; }
+
+/* ----- Importar ----- */
+.imp-resumo { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 8px; }
+.imp-resumo:empty { display: none; }
+.imp-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 0; border-top: 0.5px solid var(--border);
+}
+.imp-item.off { opacity: 0.45; }
+.imp-check input { width: 20px; height: 20px; accent-color: var(--teal); margin-top: 2px; }
+.imp-info { flex: 1; min-width: 0; }
+.imp-desc { font-size: 14px; font-weight: 600; color: var(--white); word-break: break-word; }
+.imp-meta { font-size: 11px; color: var(--muted); margin: 2px 0 6px; }
+.imp-dup { color: var(--danger); }
+.imp-cat {
+  width: 100%; background: var(--card2); border: 0.5px solid var(--border); border-radius: 8px;
+  padding: 7px 9px; color: var(--text); font-family: inherit; font-size: 16px;
+  -webkit-appearance: none; appearance: none;
+}
+.imp-valor { font-size: 14px; font-weight: 700; color: var(--teal); white-space: nowrap; }
+input[type="file"].inp { padding: 9px; font-size: 14px; }
+.imp-aviso {
+  background: rgba(201,133,0,0.12);
+  border: 0.5px solid rgba(201,133,0,0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.imp-aviso .btn-slim { margin-top: 8px; }

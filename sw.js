@@ -1,6 +1,6 @@
-// A cada deploy: aumente VERSION aqui E o ?v= de app.js/style.css no index.html.
-// O ?v= garante que um HTML só carregue o JS/CSS da mesma versão.
-const VERSION = 7;
+// Versão: NÃO edite à mão — rode `npm run versao` (o deploy automático faz isso sozinho).
+// O ?v= nos arquivos garante que um HTML só carregue JS/CSS da mesma versão.
+const VERSION = 8;
 const CACHE = 'minhafatura-v' + VERSION;
 // Recursos externos com URL versionada/imutável: cache-first
 const CDN_PREFIXES = [
@@ -13,6 +13,10 @@ const ASSETS = [
   './index.html',
   './style.css?v=' + VERSION,
   './app.js?v=' + VERSION,
+  './js/fatura.js?v=' + VERSION,
+  './js/importar.js?v=' + VERSION,
+  './js/exportar.js?v=' + VERSION,
+  './js/grafico.js?v=' + VERSION,
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

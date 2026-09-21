@@ -15,9 +15,14 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
 
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=7" />
+  <link rel="stylesheet" href="style.css?v=8" />
 </head>
 <body>
+<!--
+  Eventos: nada de onclick/onchange/oninput aqui. Use data-action (clique),
+  data-change ou data-input com o nome de uma função do objeto ACOES em app.js.
+  O teste tests/eventos.test.js falha se algum nome não existir.
+-->
 <div id="app">
 
   <!-- ===== LOGIN ===== -->
@@ -30,17 +35,17 @@
       </div>
       <div class="login-box">
         <div class="f-field">
-          <div class="lbl">E-mail</div>
+          <label class="lbl" for="l-email">E-mail</label>
           <input class="inp" type="email" id="l-email" placeholder="seu@email.com" autocomplete="email" />
         </div>
         <div class="f-field">
-          <div class="lbl">Senha</div>
+          <label class="lbl" for="l-pass">Senha</label>
           <input class="inp" type="password" id="l-pass" placeholder="••••••" autocomplete="current-password" />
         </div>
         <div id="login-error" class="error-msg" style="display:none;"></div>
-        <button class="btn-teal" id="login-btn" onclick="doLogin()">Entrar</button>
-        <button class="btn-outline" id="register-btn" onclick="doRegister()">Criar conta</button>
-        <button type="button" class="login-reset" onclick="doReset()">Esqueci minha senha</button>
+        <button type="button" class="btn-teal" data-action="doLogin">Entrar</button>
+        <button type="button" class="btn-outline" data-action="doRegister">Criar conta</button>
+        <button type="button" class="login-reset" data-action="doReset">Esqueci minha senha</button>
       </div>
     </div>
   </div>
@@ -49,7 +54,7 @@
   <div id="scr-home" class="screen">
     <div class="topbar">
       <div class="topbar-logo">Minha<span>Fatura</span></div>
-      <button type="button" class="avatar" id="av" onclick="goSett()" aria-label="Configurações">--</button>
+      <button type="button" class="avatar" id="av" data-action="goSett" aria-label="Configurações">--</button>
     </div>
 
     <div class="fatura-nav" id="fat-nav"></div>
@@ -60,7 +65,7 @@
           <div class="fatura-mes-label" id="fat-label">Fatura</div>
           <div class="fatura-sub-info" id="fat-sub-info">fecha dia —</div>
         </div>
-        <button type="button" class="fatura-pill" onclick="goAdd()">+ Nova</button>
+        <button type="button" class="fatura-pill" data-action="goAdd">+ Nova</button>
       </div>
       <div class="cat-resumo" id="cat-resumo"></div>
       <div class="fatura-total" id="fat-total">R$ 0,00</div>
@@ -68,13 +73,13 @@
     </div>
 
     <div class="filters">
-      <select id="fil-fatura" onchange="onFatFilterChange()" aria-label="Fatura"></select>
-      <select id="fil-cat" onchange="renderHome()" aria-label="Categoria">
+      <select id="fil-fatura" data-change="onFatFilterChange" aria-label="Fatura"></select>
+      <select id="fil-cat" data-change="renderHome" aria-label="Categoria">
         <option value="">Todas as categorias</option>
       </select>
     </div>
     <div class="search-row">
-      <input class="search-inp" id="search" placeholder="🔍  Buscar por nome..." oninput="renderHome()" />
+      <input class="search-inp" id="search" placeholder="🔍  Buscar por nome..." data-input="renderHome" aria-label="Buscar" />
     </div>
 
     <div class="sec-title" id="sec-title">compras da fatura</div>
@@ -84,7 +89,7 @@
   <!-- ===== FORM ===== -->
   <div id="scr-form" class="screen">
     <div class="topbar">
-      <button type="button" class="back-btn" onclick="goHome()" aria-label="Voltar">←</button>
+      <button type="button" class="back-btn" data-action="goHome" aria-label="Voltar">←</button>
       <div class="topbar-logo" id="form-title">Nova compra</div>
       <div style="width:34px;"></div>
     </div>
@@ -92,43 +97,64 @@
       <input type="hidden" id="edit-id" value="" />
       <div class="form-grid">
         <div class="f-field full">
-          <div class="lbl">Descrição do item</div>
+          <label class="lbl" for="f-desc">Descrição do item</label>
           <input class="inp" id="f-desc" placeholder="Ex: Compra Mercado" />
         </div>
         <div class="f-field full">
-          <div class="lbl">Categoria</div>
+          <label class="lbl" for="f-cat">Categoria</label>
           <select class="inp" id="f-cat"></select>
         </div>
         <div class="f-field">
-          <div class="lbl">Data compra</div>
+          <label class="lbl" for="f-data">Data compra</label>
           <input class="inp" type="date" id="f-data" />
         </div>
         <div class="f-field">
-          <div class="lbl">Qtd parcelas</div>
-          <input class="inp" type="number" id="f-parc" placeholder="Ex: 12" min="1" value="1" oninput="updateValorHint()" />
+          <label class="lbl" for="f-parc">Qtd parcelas</label>
+          <input class="inp" type="number" id="f-parc" placeholder="Ex: 12" min="1" value="1" data-input="updateValorHint" />
         </div>
         <div class="f-field">
           <label class="lbl" for="f-tipo-val">Informar</label>
-          <select class="inp" id="f-tipo-val" onchange="updateValorHint()">
+          <select class="inp" id="f-tipo-val" data-change="updateValorHint">
             <option value="parcela">Valor da parcela</option>
             <option value="total">Valor total</option>
           </select>
         </div>
         <div class="f-field">
           <label class="lbl" for="f-val">Valor (R$)</label>
-          <input class="inp" type="number" id="f-val" placeholder="0,00" step="0.01" min="0" inputmode="decimal" oninput="updateValorHint()" />
+          <input class="inp" type="number" id="f-val" placeholder="0,00" step="0.01" min="0" inputmode="decimal" data-input="updateValorHint" />
         </div>
         <div class="valor-hint full" id="f-val-hint"></div>
       </div>
       <div id="form-error" class="error-msg" style="display:none;"></div>
-      <button class="btn-teal" style="margin-top:14px;" id="save-btn" onclick="saveCompra()">Salvar</button>
+      <button type="button" class="btn-teal" style="margin-top:14px;" data-action="saveCompra">Salvar</button>
+    </div>
+  </div>
+
+  <!-- ===== GRÁFICOS ===== -->
+  <div id="scr-graf" class="screen">
+    <div class="topbar">
+      <div class="topbar-logo">Gráficos</div>
+    </div>
+    <div class="kpis" id="graf-kpis"></div>
+    <div class="sett-card">
+      <h3>Total por fatura</h3>
+      <div class="graf-legenda" id="graf-legenda"></div>
+      <div class="graf-wrap" id="graf-svg"></div>
+      <p class="graf-nota">Toque numa barra para ver o detalhe. Faturas futuras mostram só as parcelas já lançadas.</p>
+    </div>
+    <div class="sett-card graf-det" id="graf-det"></div>
+    <div class="sett-card">
+      <details>
+        <summary>Ver como tabela</summary>
+        <div class="graf-tabela" id="graf-tabela"></div>
+      </details>
     </div>
   </div>
 
   <!-- ===== SETTINGS ===== -->
   <div id="scr-sett" class="screen">
     <div class="topbar">
-      <button type="button" class="back-btn" onclick="goHome()" aria-label="Voltar">←</button>
+      <button type="button" class="back-btn" data-action="goHome" aria-label="Voltar">←</button>
       <div class="topbar-logo">Configurações</div>
       <div style="width:34px;"></div>
     </div>
@@ -136,24 +162,58 @@
     <div class="sett-card">
       <h3>Cartão</h3>
       <div class="sett-row">
-        <label>Dia de fechamento da fatura</label>
-        <input type="number" id="s-fech" min="1" max="31" value="10" onchange="saveFech()" />
+        <label for="s-fech">Dia de fechamento da fatura</label>
+        <input type="number" id="s-fech" min="1" max="31" value="10" data-change="saveFech" />
       </div>
       <div class="sett-row" style="border:none;">
-        <label>Conta</label>
+        <span>Conta</span>
         <span class="sett-val" id="s-user">-</span>
       </div>
-      <button class="btn-logout" onclick="doLogout()">Sair da conta</button>
+      <button type="button" class="btn-logout" data-action="doLogout">Sair da conta</button>
+    </div>
+
+    <div class="sett-card">
+      <h3>Importar e exportar</h3>
+      <button type="button" class="btn-outline btn-slim" data-action="goImport">📥 Importar fatura do banco (CSV/OFX)</button>
+      <button type="button" class="btn-outline btn-slim" data-action="exportCompras">📤 Exportar compras (planilha)</button>
+      <button type="button" class="btn-outline btn-slim" data-action="exportLancamentos">📤 Exportar lançamentos por fatura</button>
     </div>
 
     <div class="sett-card">
       <h3>Categorias</h3>
       <div id="cat-list-s"></div>
       <div class="add-row">
-        <input class="inp" id="new-cat-e" placeholder="🏷️" style="width:48px;text-align:center;" />
-        <input class="inp" id="new-cat-n" placeholder="Nome da categoria" style="flex:1;" />
-        <button class="btn-sm" onclick="addCat()">+</button>
+        <input class="inp" id="new-cat-e" placeholder="🏷️" style="width:48px;text-align:center;" aria-label="Emoji" />
+        <input class="inp" id="new-cat-n" placeholder="Nome da categoria" style="flex:1;" aria-label="Nome da nova categoria" />
+        <button type="button" class="btn-sm" data-action="addCat" aria-label="Adicionar categoria">+</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== IMPORTAR ===== -->
+  <div id="scr-import" class="screen">
+    <div class="topbar">
+      <button type="button" class="back-btn" data-action="goSett" aria-label="Voltar">←</button>
+      <div class="topbar-logo">Importar fatura</div>
+      <div style="width:34px;"></div>
+    </div>
+    <div class="sett-card">
+      <h3>1. Arquivo do banco</h3>
+      <input class="inp" type="file" id="imp-arquivo" accept=".csv,.ofx,.txt,text/csv" data-change="importArquivo" />
+      <p class="graf-nota">CSV do Nubank, Inter, C6 e outros, ou OFX (Itaú, BB, Santander, Bradesco...).
+        No app do banco, procure “exportar fatura”.</p>
+      <div id="imp-erro" class="error-msg" style="display:none;"></div>
+    </div>
+    <div class="sett-card">
+      <h3>2. Fatura desse arquivo</h3>
+      <select class="inp" id="imp-fatura" data-change="importRecalc" aria-label="Fatura do arquivo"></select>
+      <p class="graf-nota">Parcelas (“3/10”) viram compras parceladas com a parcela certa nesta fatura.</p>
+    </div>
+    <div class="sett-card">
+      <h3>3. Confira</h3>
+      <div class="imp-resumo" id="imp-resumo"></div>
+      <div id="imp-lista"></div>
+      <button type="button" class="btn-teal" id="imp-confirmar" style="display:none;margin-top:12px;" data-action="importConfirmar">Importar</button>
     </div>
   </div>
 
@@ -161,15 +221,19 @@
 
 <!-- BOTTOM NAV -->
 <nav id="bnav" class="bottom-nav" style="display:none;" aria-label="Navegação principal">
-  <button type="button" class="nav-btn active" id="nb-home" onclick="goHome()">
+  <button type="button" class="nav-btn active" id="nb-home" data-action="goHome">
     <span class="nav-ic" aria-hidden="true">💳</span>
     <span class="nav-lbl">Fatura</span>
   </button>
-  <button type="button" class="nav-btn" id="nb-add" onclick="goAdd()">
+  <button type="button" class="nav-btn" id="nb-add" data-action="goAdd">
     <span class="nav-ic" aria-hidden="true">➕</span>
     <span class="nav-lbl">Adicionar</span>
   </button>
-  <button type="button" class="nav-btn" id="nb-sett" onclick="goSett()">
+  <button type="button" class="nav-btn" id="nb-graf" data-action="goGraf">
+    <span class="nav-ic" aria-hidden="true">📊</span>
+    <span class="nav-lbl">Gráficos</span>
+  </button>
+  <button type="button" class="nav-btn" id="nb-sett" data-action="goSett">
     <span class="nav-ic" aria-hidden="true">⚙️</span>
     <span class="nav-lbl">Config</span>
   </button>
@@ -180,7 +244,6 @@
   <div class="spinner"></div>
 </div>
 
-<!-- Firebase SDK -->
-<script type="module" src="app.js?v=7"></script>
+<script type="module" src="app.js?v=8"></script>
 </body>
 </html>
