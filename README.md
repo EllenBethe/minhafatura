@@ -18,8 +18,19 @@ visão por fatura, resumo por categoria e sincronização em tempo real entre di
 Service workers e ES modules exigem HTTP (não abra via `file://`):
 
 ```bash
-npx serve .
+npm run serve   # http://localhost:3000
+npm test        # testes (Node 20+, sem dependências)
 ```
+
+## Estrutura
+
+- `app.js` — telas e Firebase. Eventos via `data-action` / `data-change` / `data-input`
+  apontando para funções do objeto `ACOES` (nada de `onclick` no HTML).
+- `js/fatura.js` — regras de fatura e parcelamento
+- `js/importar.js` — leitura de CSV (Nubank, Inter, C6, genérico) e OFX
+- `js/exportar.js` — planilhas CSV
+- `js/grafico.js` — gráfico de faturas por categoria
+- `tests/` — `node --test`; inclui checagem de que todo `data-action` existe em `ACOES`
 
 ## Segurança
 
@@ -30,6 +41,10 @@ As regras do Firestore estão em [`firestore.rules`](firestore.rules): cada usu�
 A `apiKey` do Firebase no `app.js` é pública por design; a proteção vem das regras.
 Recomendado: restringir a chave aos domínios do app no Google Cloud Console e ativar o App Check.
 
-## Deploy
+## Publicação
 
-A cada deploy, incremente a versão `CACHE` em `sw.js` para que os usuários recebam os arquivos novos.
+Automática pelo GitHub Actions (`.github/workflows/ci.yml`): push no `main` roda os testes e
+publica em https://minhafatura.web.app; pull requests ganham uma prévia com link no PR.
+A versão (`?v=` e `VERSION` no `sw.js`) é carimbada pelo workflow.
+
+Manual, se precisar: `npm run versao && npm run deploy`.

@@ -4,9 +4,11 @@
     "ignore": [
       "firebase.json",
       "firestore.rules",
-      "README.md",
-      ".gitignore",
-      ".firebaserc",
+      "**/*.md",
+      "package.json",
+      "package-lock.json",
+      "tests/**",
+      "scripts/**",
       "**/.*",
       "**/.*/**",
       "**/node_modules/**"

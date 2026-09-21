@@ -1,7 +1,10 @@
 // ============================================================
-//  MinhaFatura — app.js
-//  Firebase Auth + Firestore
-//  IMPORTANTE: substitua o bloco firebaseConfig com os seus dados
+//  MinhaFatura — app.js (telas + Firebase)
+//  A lógica pura fica em js/*.js e é testada com `npm test`.
+//
+//  Eventos: o HTML NÃO chama funções direto (onclick=...). Elementos
+//  declaram data-action / data-change / data-input com o nome de uma
+//  entrada de ACOES, e um único ouvinte por tipo de evento despacha.
 // ============================================================
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -32,8 +35,16 @@ import {
   writeBatch,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+import {
+  MONTHS, hojeISO, addMonths, getFatKey, fatKeyOf, getEndFatKey, parcelaNaFatura,
+  fatLabel, fatLabelFull, faturasAtivas, comprasDaFatura, resumoPorCategoria, fmt, esc, arred,
+} from './js/fatura.js?v=8';
+import { decodificarArquivo, lerArquivo, prepararImportacao } from './js/importar.js?v=8';
+import { csvCompras, csvLancamentos } from './js/exportar.js?v=8';
+import { modeloGrafico, svgGrafico } from './js/grafico.js?v=8';
+
 // ============================================================
-//  🔧 CONFIGURE AQUI — cole os dados do seu projeto Firebase
+//  FIREBASE
 // ============================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBfBYLYXucNBlB_lN1SEBHvG7H8mspAE0E",
@@ -43,7 +54,6 @@ const firebaseConfig = {
   messagingSenderId: "773668320405",
   appId: "1:773668320405:web:f5d8d9a3b859cc2712979c"
 };
-// ============================================================
 
 const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
@@ -55,18 +65,16 @@ const db    = initializeFirestore(fbApp, {
 // ============================================================
 //  ESTADO LOCAL
 // ============================================================
-const MONTHS   = ['janeiro','fevereiro','março','abril','maio','junho','julho',
-                  'agosto','setembro','outubro','novembro','dezembro'];
-const MONTHS_S = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-
 let currentUser  = null;
 let unsubCompras = null;
 
-let S = {
+const S = {
   fechamento: 10,
   categorias: [],
   compras:    [],
   faturaAtiva: null,
+  grafSel: null,     // fatura selecionada no gráfico
+  imp: null,         // importação em andamento: { linhas, itens, ignorados, nome }
 };
 
 const DEFAULT_CATEGORIAS = [
@@ -83,21 +91,23 @@ const DEFAULT_CATEGORIAS = [
   { emoji: '📦', name: 'Outros' },
 ];
 
+const $ = id => document.getElementById(id);
+const faturaAberta = () => getFatKey(hojeISO(), S.fechamento);
+const emojiDe = nome => S.categorias.find(c => c.name === nome)?.emoji || '📦';
+const maiuscula = s => s.charAt(0).toUpperCase() + s.slice(1);
+
 // ============================================================
 //  HELPERS
 // ============================================================
-function showLoading() { document.getElementById('loading').style.display = 'flex'; }
-function hideLoading() { document.getElementById('loading').style.display = 'none'; }
+function showLoading() { $('loading').style.display = 'flex'; }
+function hideLoading() { $('loading').style.display = 'none'; }
 function showErr(elId, msg, ok = false) {
-  const el = document.getElementById(elId);
+  const el = $(elId);
   if (!el) return;
   el.textContent = msg;
   el.classList.toggle('ok', ok);
   el.style.display = 'block';
   setTimeout(() => { el.style.display = 'none'; }, 4000);
-}
-function fmt(v) {
-  return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 // Offline, as escritas do Firestore só resolvem quando a conexão volta:
 // nesse caso não esperamos (o cache local já reflete a mudança) e só avisamos se falhar
@@ -106,20 +116,12 @@ function gravar(promise) {
   promise.catch(e => alert('Erro ao sincronizar: ' + e.message));
   return Promise.resolve();
 }
-// Escapa texto do usuário antes de inserir via innerHTML
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, ch =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
-}
-// Data de hoje no fuso local (toISOString usa UTC e vira o dia após 21h no Brasil)
-function hojeISO() {
-  const d = new Date();
-  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-}
 
 // ============================================================
-//  FIRESTORE — config
+//  FIRESTORE
 // ============================================================
+const comprasRef = () => collection(db, 'users', currentUser.uid, 'compras');
+
 async function loadUserConfig() {
   const ref  = doc(db, 'users', currentUser.uid);
   const snap = await getDoc(ref);
@@ -139,62 +141,30 @@ async function saveUserConfig() {
   await gravar(setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias }, { merge: true }));
 }
 
-// ============================================================
-//  FIRESTORE — compras (tempo real)
-// ============================================================
 function listenCompras() {
   if (unsubCompras) unsubCompras();
-  const q = query(
-    collection(db, 'users', currentUser.uid, 'compras'),
-    orderBy('data', 'desc')
-  );
-  unsubCompras = onSnapshot(q, (snap) => {
+  unsubCompras = onSnapshot(query(comprasRef(), orderBy('data', 'desc')), (snap) => {
     S.compras = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderHome();
+    renderGrafico();
   }, (e) => {
     console.error(e);
     alert('Erro ao carregar compras: ' + e.message);
   });
 }
 
-async function addCompraFirestore(c)      { await gravar(addDoc(collection(db, 'users', currentUser.uid, 'compras'), c)); }
-async function updateCompraFirestore(id, c) { await gravar(updateDoc(doc(db, 'users', currentUser.uid, 'compras', id), c)); }
-async function deleteCompraFirestore(id)  { await gravar(deleteDoc(doc(db, 'users', currentUser.uid, 'compras', id))); }
+// Grava muitas compras de uma vez (writeBatch aceita até 500 operações)
+async function adicionarEmLote(payloads) {
+  for (let k = 0; k < payloads.length; k += 500) {
+    const batch = writeBatch(db);
+    payloads.slice(k, k + 500).forEach(p => batch.set(doc(comprasRef()), p));
+    await gravar(batch.commit());
+  }
+}
 
 // ============================================================
 //  AUTH
 // ============================================================
-window.doLogin = async function () {
-  const email = document.getElementById('l-email').value.trim();
-  const pass  = document.getElementById('l-pass').value;
-  if (!email || !pass) return showErr('login-error', 'Preencha e-mail e senha.');
-  showLoading();
-  try { await signInWithEmailAndPassword(auth, email, pass); }
-  catch (e) { hideLoading(); showErr('login-error', traduzirErroAuth(e.code)); }
-};
-
-window.doRegister = async function () {
-  const email = document.getElementById('l-email').value.trim();
-  const pass  = document.getElementById('l-pass').value;
-  if (!email || !pass) return showErr('login-error', 'Preencha e-mail e senha.');
-  if (pass.length < 6) return showErr('login-error', 'Senha mínima: 6 caracteres.');
-  showLoading();
-  try { await createUserWithEmailAndPassword(auth, email, pass); }
-  catch (e) { hideLoading(); showErr('login-error', traduzirErroAuth(e.code)); }
-};
-
-window.doReset = async function () {
-  const email = document.getElementById('l-email').value.trim();
-  if (!email) return showErr('login-error', 'Digite seu e-mail para redefinir a senha.');
-  try { await sendPasswordResetEmail(auth, email); showErr('login-error', '✅ E-mail enviado!', true); }
-  catch (e) { showErr('login-error', traduzirErroAuth(e.code)); }
-};
-
-window.doLogout = async function () {
-  if (unsubCompras) unsubCompras();
-  await signOut(auth);
-};
-
 function traduzirErroAuth(code) {
   const msgs = {
     'auth/user-not-found':       'Usuário não encontrado.',
@@ -220,16 +190,18 @@ onAuthStateChanged(auth, async (user) => {
       return;
     }
     listenCompras();
-    const init = user.email.split('@')[0].slice(0, 2).toUpperCase();
-    document.getElementById('av').textContent      = init;
-    document.getElementById('s-user').textContent  = user.email;
+    $('av').textContent     = user.email.split('@')[0].slice(0, 2).toUpperCase();
+    $('s-user').textContent = user.email;
     hideLoading();
-    showApp();
+    $('bnav').style.display = 'flex';
+    $('s-fech').value = S.fechamento;
+    buildCatSelect();
+    ACOES.goHome();
   } else {
     currentUser = null;
     S.compras   = [];
     show('scr-login');
-    document.getElementById('bnav').style.display = 'none';
+    $('bnav').style.display = 'none';
     hideLoading();
   }
 });
@@ -239,226 +211,94 @@ onAuthStateChanged(auth, async (user) => {
 // ============================================================
 function show(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
+  $(id).classList.add('active');
 }
 function setNav(id) {
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.id === id));
 }
-function showApp() {
-  document.getElementById('bnav').style.display = 'flex';
-  document.getElementById('s-fech').value = S.fechamento;
-  buildCatSelect();
-  goHome();
-}
-window.goHome = function () { show('scr-home'); setNav('nb-home'); renderHome(); };
-window.goAdd  = function () { openAddForm(null); show('scr-form'); setNav('nb-add'); };
-window.goSett = function () {
-  show('scr-sett'); setNav('nb-sett');
-  document.getElementById('s-user').textContent = currentUser?.email || '-';
-  document.getElementById('s-fech').value = S.fechamento;
-  buildCatList();
-};
 
 // ============================================================
-//  LÓGICA DE FATURA + PARCELAMENTO
-//
-//  Uma compra de N parcelas aparece em N faturas consecutivas.
-//  fatKeyOf() = fatura da PRIMEIRA parcela (derivada da data).
-//  getAllFatKeys() gera todas as faturas que a compra ocupa.
+//  HOME — fatura
 // ============================================================
-function getFatKey(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  if (d >= S.fechamento) {
-    const nd = new Date(y, m, 1);
-    return nd.getFullYear() + '-' + String(nd.getMonth() + 1).padStart(2, '0');
-  }
-  return y + '-' + String(m).padStart(2, '0');
-}
-
-// Fatura da 1ª parcela, sempre recalculada a partir da data da compra
-// (assim mudar o dia de fechamento reposiciona as compras antigas)
-function fatKeyOf(c) {
-  return c.data ? getFatKey(c.data) : c.fatKey;
-}
-
-function fatLabel(key) {
-  const [y, m] = key.split('-');
-  return MONTHS_S[parseInt(m) - 1] + '/' + y.slice(2);
-}
-
-function fatLabelFull(key) {
-  const [y, m] = key.split('-');
-  return MONTHS[parseInt(m) - 1] + ' de ' + y;
-}
-
-// Retorna array com todas as fatKeys que a compra ocupa
-function getAllFatKeys(startFatKey, parcelas) {
-  const [y, m] = startFatKey.split('-').map(Number);
-  const keys = [];
-  for (let i = 0; i < parcelas; i++) {
-    const d = new Date(y, m - 1 + i, 1);
-    keys.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
-  }
-  return keys;
-}
-
-function getEndFatKey(startFatKey, parcelas) {
-  const all = getAllFatKeys(startFatKey, parcelas);
-  return all[all.length - 1];
-}
-
-// Todas as faturas que devem aparecer no seletor
-function getActiveFats() {
-  const now  = new Date();
-  const keys = new Set();
-  for (let i = -2; i <= 3; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    keys.add(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
-  }
-  // inclui todos os meses com parcelas em andamento
-  S.compras.forEach(c => {
-    getAllFatKeys(fatKeyOf(c), c.parcelas).forEach(k => keys.add(k));
-  });
-  return [...keys].sort();
-}
-
-// Compras que aparecem em uma fatura (inclui parceladas de meses anteriores)
-function getComprasDaFatura(fatKey) {
-  return S.compras.filter(c => getAllFatKeys(fatKeyOf(c), c.parcelas).includes(fatKey));
-}
-
-function buildFatNav() {
-  const keys = getActiveFats();
-  if (!S.faturaAtiva || !keys.includes(S.faturaAtiva)) {
-    // Fatura aberta hoje (após o fechamento, já é a do mês seguinte)
-    const cur = getFatKey(hojeISO());
-    S.faturaAtiva = keys.includes(cur) ? cur : keys[0];
-  }
-  const nav = document.getElementById('fat-nav');
-  if (!nav) return;
+function buildFatNav(keys) {
+  const nav = $('fat-nav');
   nav.innerHTML = keys.map(k =>
-    `<button type="button" class="fat-chip ${k === S.faturaAtiva ? 'active' : ''}" onclick="selFat('${k}')"
+    `<button type="button" class="fat-chip ${k === S.faturaAtiva ? 'active' : ''}" data-action="selFat" data-key="${k}"
        aria-pressed="${k === S.faturaAtiva}" aria-label="Fatura de ${fatLabelFull(k)}">${fatLabel(k)}</button>`
   ).join('');
   setTimeout(() => {
-    const active = nav.querySelector('.fat-chip.active');
-    if (active) active.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    nav.querySelector('.fat-chip.active')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
   }, 50);
 }
 
-function buildFatFilter() {
-  const sel = document.getElementById('fil-fatura');
-  if (!sel) return;
-  const keys = getActiveFats();
-  sel.innerHTML = keys.map(k =>
+function buildFatFilter(keys) {
+  $('fil-fatura').innerHTML = keys.map(k =>
     `<option value="${k}" ${k === S.faturaAtiva ? 'selected' : ''}>${fatLabelFull(k)}</option>`
   ).join('');
 }
 
-window.selFat = function (k) {
-  S.faturaAtiva = k;
-  const sel = document.getElementById('fil-fatura');
-  if (sel) sel.value = k;
-  renderHome();
-};
-
-window.onFatFilterChange = function () {
-  const sel = document.getElementById('fil-fatura');
-  if (sel) selFat(sel.value);
-};
-
 // Categorias cadastradas + nomes antigos ainda usados por compras; preserva a seleção
 function buildCatFilter() {
-  const sel = document.getElementById('fil-cat');
-  if (!sel) return;
+  const sel = $('fil-cat');
   const atual = sel.value;
   const nomes = S.categorias.map(c => c.name);
   S.compras.forEach(c => { if (c.cat && !nomes.includes(c.cat)) nomes.push(c.cat); });
   if (atual && !nomes.includes(atual)) nomes.push(atual);
-  sel.innerHTML = '<option value="">Todas as categorias</option>' + nomes.map(n => {
-    const emoji = S.categorias.find(c => c.name === n)?.emoji || '📦';
-    return `<option value="${esc(n)}">${esc(emoji)} ${esc(n)}</option>`;
-  }).join('');
+  sel.innerHTML = '<option value="">Todas as categorias</option>' +
+    nomes.map(n => `<option value="${esc(n)}">${esc(emojiDe(n))} ${esc(n)}</option>`).join('');
   sel.value = atual;
 }
 
-// Chamado pelo HTML (busca e filtro de categoria); módulos não expõem funções ao HTML sozinhos
-window.renderHome = () => renderHome();
-
-// Toque numa linha do resumo: filtra pela categoria (tocar de novo limpa)
-window.filtrarCat = function (nome) {
-  const sel = document.getElementById('fil-cat');
-  if (!sel) return;
-  sel.value = sel.value === nome ? '' : nome;
-  renderHome();
-};
-
-// ============================================================
-//  RENDER HOME
-// ============================================================
 function renderHome() {
-  if (!document.getElementById('scr-home').classList.contains('active')) return;
-  buildFatNav();
-  buildFatFilter();
+  if (!$('scr-home').classList.contains('active')) return;
+  const keys = faturasAtivas(S.compras, S.fechamento);
+  if (!S.faturaAtiva || !keys.includes(S.faturaAtiva)) {
+    const cur = faturaAberta();
+    S.faturaAtiva = keys.includes(cur) ? cur : keys[0];
+  }
+  buildFatNav(keys);
+  buildFatFilter(keys);
   buildCatFilter();
 
   const fat = S.faturaAtiva;
-  if (!fat) return;
-
   const [fy, fm] = fat.split('-');
-  document.getElementById('fat-label').textContent    = `Fatura de ${MONTHS[parseInt(fm) - 1]} de ${fy}`;
-  document.getElementById('fat-sub-info').textContent = `Fecha no dia ${S.fechamento}`;
+  $('fat-label').textContent    = `Fatura de ${MONTHS[parseInt(fm) - 1]} de ${fy}`;
+  $('fat-sub-info').textContent = `Fecha no dia ${S.fechamento}`;
 
-  const search  = (document.getElementById('search')?.value || '').toLowerCase();
-  const filCat  = document.getElementById('fil-cat')?.value || '';
-  let compras   = getComprasDaFatura(fat);
+  const search = $('search').value.toLowerCase();
+  const filCat = $('fil-cat').value;
+  let compras  = comprasDaFatura(S.compras, fat, S.fechamento);
 
   // Resumo por categoria (sem filtros: mostra sempre a fatura inteira)
-  const catMap = {};
-  compras.forEach(c => { catMap[c.cat] = (catMap[c.cat] || 0) + c.valorParcela; });
+  const catMap  = resumoPorCategoria(compras);
+  const catKeys = Object.keys(catMap).sort((a, b) => catMap[b] - catMap[a]);
+  $('cat-resumo').innerHTML = catKeys.length === 0
+    ? '<div class="cat-resumo-vazio">Sem lançamentos</div>'
+    : catKeys.map(k => `<button type="button" class="cat-resumo-row ${k === filCat ? 'active' : ''}" data-action="filtrarCat"
+        data-cat="${esc(k)}" aria-pressed="${k === filCat}">
+        <span>${esc(emojiDe(k))} ${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></button>`).join('');
 
-  const resumoEl = document.getElementById('cat-resumo');
-  const catKeys  = Object.keys(catMap).sort((a, b) => catMap[b] - catMap[a]);
-  if (catKeys.length === 0) {
-    resumoEl.innerHTML = '<div style="font-size:12px;color:rgba(255,255,255,0.4);text-align:center;padding:4px 0;">Sem lançamentos</div>';
-  } else {
-    resumoEl.innerHTML = catKeys.map(k => {
-      const cat = S.categorias.find(c => c.name === k);
-      return `<button type="button" class="cat-resumo-row ${k === filCat ? 'active' : ''}" data-cat="${esc(k)}"
-        onclick="filtrarCat(this.dataset.cat)" aria-pressed="${k === filCat}">
-        <span>${esc(cat?.emoji || '')} ${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></button>`;
-    }).join('');
-  }
-
-  const total = Object.values(catMap).reduce((a, b) => a + b, 0);
-  document.getElementById('fat-total').textContent = `R$ ${fmt(total)}`;
-  document.getElementById('fat-count').textContent =
-    `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}`;
+  const total = arred(Object.values(catMap).reduce((a, b) => a + b, 0));
+  $('fat-total').textContent = `R$ ${fmt(total)}`;
+  $('fat-count').textContent = `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}`;
 
   // Filtros de categoria e busca (afetam só a lista)
   if (filCat) compras = compras.filter(c => c.cat === filCat);
   if (search) compras = compras.filter(c =>
-    c.desc?.toLowerCase().includes(search) || c.cat?.toLowerCase().includes(search)
-  );
+    c.desc?.toLowerCase().includes(search) || c.cat?.toLowerCase().includes(search));
 
-  const secTitle = document.getElementById('sec-title');
-  if (secTitle) {
-    const soma = compras.reduce((a, c) => a + c.valorParcela, 0);
-    secTitle.textContent = filCat ? `${filCat} · R$ ${fmt(soma)}` : 'compras da fatura';
-  }
+  const soma = compras.reduce((a, c) => a + c.valorParcela, 0);
+  $('sec-title').textContent = filCat ? `${filCat} · R$ ${fmt(soma)}` : 'compras da fatura';
 
-  const list = document.getElementById('compras-list');
+  const list = $('compras-list');
   if (compras.length === 0) {
     list.innerHTML = `<div class="empty">${filCat || search ? 'Nenhuma compra com esse filtro' : 'Nenhuma compra nesta fatura'}</div>`;
     return;
   }
 
-  list.innerHTML = [...compras].map(c => {
-    const cat      = S.categorias.find(x => x.name === c.cat) || { emoji: '📦' };
-    const allKeys  = getAllFatKeys(fatKeyOf(c), c.parcelas);
-    const parAtual = allKeys.indexOf(fat) + 1;
-    const endKey   = getEndFatKey(fatKeyOf(c), c.parcelas);
+  list.innerHTML = compras.map(c => {
+    const parAtual = parcelaNaFatura(c, fat, S.fechamento);
+    const endKey   = getEndFatKey(fatKeyOf(c, S.fechamento), c.parcelas);
     const parLabel = c.parcelas > 1 ? `Parcela ${parAtual} de ${c.parcelas}` : 'À vista';
     const finLabel = c.parcelas > 1 ? `Finaliza: ${fatLabelFull(endKey)}` : '';
     const pct      = c.parcelas > 1 ? Math.min(100, Math.round((parAtual / c.parcelas) * 100)) : 100;
@@ -466,11 +306,11 @@ function renderHome() {
     return `<div class="compra-card">
       <div class="cc-top">
         <div class="cc-badges">
-          <div class="cc-badge">${esc(cat.emoji)} ${esc(c.cat)}</div>
+          <div class="cc-badge">${esc(emojiDe(c.cat))} ${esc(c.cat)}</div>
         </div>
         <div class="cc-actions">
-          <button class="cc-act-btn" onclick="editCompra('${c.id}')" aria-label="Editar">✏️</button>
-          <button class="cc-act-btn" onclick="confirmDelete('${c.id}')" aria-label="Remover">🗑️</button>
+          <button type="button" class="cc-act-btn" data-action="editCompra" data-id="${esc(c.id)}" aria-label="Editar">✏️</button>
+          <button type="button" class="cc-act-btn" data-action="confirmDelete" data-id="${esc(c.id)}" aria-label="Remover">🗑️</button>
         </div>
       </div>
       <div class="cc-nome">${esc(c.desc)}</div>
@@ -487,179 +327,405 @@ function renderHome() {
 }
 
 // ============================================================
-//  SELECTS
+//  FORM — adicionar / editar
 // ============================================================
 function buildCatSelect() {
-  const cs = document.getElementById('f-cat');
-  if (cs) cs.innerHTML = S.categorias.map(c =>
-    `<option value="${esc(c.name)}">${esc(c.emoji)} ${esc(c.name)}</option>`
-  ).join('');
+  $('f-cat').innerHTML = S.categorias.map(c =>
+    `<option value="${esc(c.name)}">${esc(c.emoji)} ${esc(c.name)}</option>`).join('');
 }
 
-// ============================================================
-//  FORM — ADICIONAR / EDITAR
-// ============================================================
 function openAddForm(compra) {
   buildCatSelect();
-  document.getElementById('edit-id').value          = compra?.id || '';
-  document.getElementById('form-title').textContent = compra ? 'Editar compra' : 'Nova compra';
-  document.getElementById('f-desc').value           = compra?.desc || '';
-  document.getElementById('f-cat').value            = compra?.cat  || S.categorias[0]?.name || '';
-  document.getElementById('f-data').value           = compra?.data || hojeISO();
-  document.getElementById('f-parc').value           = compra?.parcelas      || 1;
-  const tipoVal = document.getElementById('f-tipo-val');
-  if (tipoVal) tipoVal.value = 'parcela';
-  document.getElementById('f-val').value            = compra?.valorParcela  || '';
-  updateValorHint();
+  $('edit-id').value          = compra?.id || '';
+  $('form-title').textContent = compra ? 'Editar compra' : 'Nova compra';
+  $('f-desc').value           = compra?.desc || '';
+  $('f-cat').value            = compra?.cat  || S.categorias[0]?.name || '';
+  $('f-data').value           = compra?.data || hojeISO();
+  $('f-parc').value           = compra?.parcelas || 1;
+  $('f-tipo-val').value       = 'parcela';
+  $('f-val').value            = compra?.valorParcela || '';
+  ACOES.updateValorHint();
 }
 
 // Converte o valor digitado em valor da parcela (arredondado em centavos)
 function lerValorParcela() {
-  const parcelas = Math.max(1, parseInt(document.getElementById('f-parc').value) || 1);
-  const valor    = parseFloat(document.getElementById('f-val').value);
-  const tipo     = document.getElementById('f-tipo-val')?.value || 'parcela';
+  const parcelas = Math.max(1, parseInt($('f-parc').value) || 1);
+  const valor    = parseFloat($('f-val').value);
   if (!valor || valor <= 0) return null;
-  const parcela  = tipo === 'total' ? valor / parcelas : valor;
-  return { parcelas, valorParcela: Math.round(parcela * 100) / 100 };
+  const parcela  = $('f-tipo-val').value === 'total' ? valor / parcelas : valor;
+  return { parcelas, valorParcela: arred(parcela) };
 }
 
-window.updateValorHint = function () {
-  const hint = document.getElementById('f-val-hint');
-  if (!hint) return;
-  const v    = lerValorParcela();
-  if (!v) { hint.textContent = ''; return; }
-  hint.textContent = v.parcelas > 1
-    ? `${v.parcelas}x de R$ ${fmt(v.valorParcela)} = R$ ${fmt(v.valorParcela * v.parcelas)}`
-    : `À vista: R$ ${fmt(v.valorParcela)}`;
-};
-
-window.editCompra = function (id) {
-  const c = S.compras.find(x => x.id === id);
-  if (!c) return;
-  openAddForm(c);
-  show('scr-form');
-  setNav('nb-add');
-};
-
-window.confirmDelete = async function (id) {
-  if (!confirm('Remover esta compra?')) return;
-  showLoading();
-  try { await deleteCompraFirestore(id); }
-  catch (e) { alert('Erro ao remover: ' + e.message); }
-  hideLoading();
-};
-
-window.saveCompra = async function () {
-  const desc         = document.getElementById('f-desc').value.trim();
-  const cat          = document.getElementById('f-cat').value;
-  const data         = document.getElementById('f-data').value;
-  const valor        = lerValorParcela();
-
-  if (!desc)  return showErr('form-error', 'Preencha a descrição.');
-  if (!data)  return showErr('form-error', 'Escolha a data.');
-  if (!valor) return showErr('form-error', 'Informe o valor.');
-
-  const payload = { desc, cat, data, ...valor };
-
-  showLoading();
-  try {
-    const editId = document.getElementById('edit-id').value;
-    if (editId) { await updateCompraFirestore(editId, payload); }
-    else        { await addCompraFirestore(payload); }
-    S.faturaAtiva = getFatKey(data);
-    goHome();
-  } catch (e) {
-    showErr('form-error', 'Erro ao salvar: ' + e.message);
-  }
-  hideLoading();
-};
-
 // ============================================================
-//  SETTINGS — Fechamento
-// ============================================================
-window.saveFech = async function () {
-  const v = parseInt(document.getElementById('s-fech').value);
-  if (v >= 1 && v <= 31) {
-    S.fechamento = v;
-    await saveUserConfig();
-    renderHome();
-  }
-};
-
-// ============================================================
-//  SETTINGS — Categorias
+//  CONFIGURAÇÕES — categorias
 // ============================================================
 function buildCatList() {
-  const el = document.getElementById('cat-list-s');
-  if (!el) return;
-  el.innerHTML = S.categorias.map((c, i) => `
+  $('cat-list-s').innerHTML = S.categorias.map((c, i) => `
     <div class="resp-item">
-      <span style="font-size:18px;width:24px;text-align:center;">${esc(c.emoji)}</span>
-      <input class="resp-name-inp" value="${esc(c.name)}" onchange="renameCat(${i}, this)" />
-      <button class="btn-del" onclick="removeCat(${i})" aria-label="Remover categoria">✕</button>
+      <span class="cat-emoji">${esc(c.emoji)}</span>
+      <input class="resp-name-inp" value="${esc(c.name)}" data-change="renameCat" data-i="${i}" aria-label="Nome da categoria" />
+      <button type="button" class="btn-del" data-action="removeCat" data-i="${i}" aria-label="Remover categoria">✕</button>
     </div>`).join('');
 }
 
-// Renomeia a categoria e leva junto as compras que usam o nome antigo
-window.renameCat = async function (i, input) {
-  const oldName = S.categorias[i].name;
-  const newName = input.value.trim();
-  if (!newName || newName === oldName) { input.value = oldName; return; }
-  if (S.categorias.some(c => c.name === newName)) {
-    alert('Já existe uma categoria com esse nome.');
-    input.value = oldName;
+// ============================================================
+//  GRÁFICOS
+// ============================================================
+function renderGrafico() {
+  if (!$('scr-graf').classList.contains('active')) return;
+  const aberta = faturaAberta();
+  const modelo = modeloGrafico(S.compras, S.fechamento, aberta);
+  if (!S.grafSel || !modelo.keys.includes(S.grafSel)) S.grafSel = aberta;
+
+  const iA = modelo.keys.indexOf(aberta);
+  const passadas = modelo.totais.slice(0, iA).filter(v => v > 0);
+  const media = passadas.length ? passadas.reduce((a, b) => a + b, 0) / passadas.length : 0;
+  const futuro = modelo.totais.slice(iA + 1).reduce((a, b) => a + b, 0);
+  $('graf-kpis').innerHTML = `
+    <div class="kpi"><div class="kpi-lbl">Fatura aberta</div><div class="kpi-val">R$ ${fmt(modelo.totais[iA])}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Já comprometido<br>próximas 6</div><div class="kpi-val">R$ ${fmt(futuro)}</div></div>
+    <div class="kpi"><div class="kpi-lbl">Média das<br>anteriores</div><div class="kpi-val">R$ ${fmt(media)}</div></div>`;
+
+  $('graf-legenda').innerHTML = modelo.series.length
+    ? modelo.series.map(s => `<span class="leg-item"><i style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join('')
+    : '';
+  $('graf-svg').innerHTML = modelo.series.length
+    ? svgGrafico(modelo, { selecionada: S.grafSel })
+    : '<div class="empty">Nenhuma compra nesse período</div>';
+
+  // Detalhe da fatura selecionada (toque numa barra para trocar)
+  const i = modelo.keys.indexOf(S.grafSel);
+  const tipo = i < iA ? 'fechada' : i === iA ? 'aberta' : 'futura — só parcelas já lançadas';
+  const linhas = modelo.series.filter(s => s.valores[i] > 0)
+    .sort((a, b) => b.valores[i] - a.valores[i])
+    .map(s => `<div class="det-row"><span><i style="background:${s.cor}"></i>${esc(s.nome)}${s.agrupa ? ` <small>(${esc(s.agrupa.join(', '))})</small>` : ''}</span><b>R$ ${fmt(s.valores[i])}</b></div>`)
+    .join('');
+  $('graf-det').innerHTML = `
+    <div class="det-top">
+      <div><div class="det-tit">${esc(maiuscula(fatLabelFull(S.grafSel)))}</div><div class="det-sub">${tipo}</div></div>
+      <div class="det-total">R$ ${fmt(modelo.totais[i])}</div>
+    </div>
+    ${linhas || '<div class="det-sub">Sem lançamentos</div>'}
+    <button type="button" class="btn-outline btn-slim" data-action="grafVerFatura">Ver compras desta fatura</button>`;
+
+  $('graf-tabela').innerHTML = `<table><thead><tr><th>Fatura</th><th>Situação</th><th>Total</th></tr></thead><tbody>${
+    modelo.keys.map((k, j) => `<tr${k === S.grafSel ? ' class="sel"' : ''}><td>${esc(fatLabel(k))}</td>
+      <td>${j < iA ? 'fechada' : j === iA ? 'aberta' : 'futura'}</td><td>R$ ${fmt(modelo.totais[j])}</td></tr>`).join('')
+  }</tbody></table>`;
+}
+
+// ============================================================
+//  EXPORTAR
+// ============================================================
+async function compartilharArquivo(nome, conteudo) {
+  const file = new File([conteudo], nome, { type: 'text/csv' });
+  // iPhone (PWA): abre a folha de compartilhamento (Salvar em Arquivos, AirDrop, e-mail...)
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: nome }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(file);
+  const a = Object.assign(document.createElement('a'), { href: url, download: nome });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ============================================================
+//  IMPORTAR
+// ============================================================
+// Fatura mais provável do arquivo: a mais comum entre as compras à vista
+function faturaProvavel(linhas) {
+  const conta = {};
+  linhas.filter(l => l.valor > 0 && !l.parcela).forEach(l => {
+    const k = getFatKey(l.data, S.fechamento);
+    conta[k] = (conta[k] || 0) + 1;
+  });
+  return Object.keys(conta).sort((a, b) => conta[b] - conta[a])[0] || faturaAberta();
+}
+
+function renderImport() {
+  const aberta = faturaAberta();
+  const sel = $('imp-fatura');
+  const atual = sel.value || (S.imp ? faturaProvavel(S.imp.linhas) : aberta);
+  const keys = [];
+  for (let i = -12; i <= 2; i++) keys.push(addMonths(aberta, i));
+  if (!keys.includes(atual)) keys.push(atual);
+  sel.innerHTML = keys.sort().reverse().map(k =>
+    `<option value="${k}">${fatLabelFull(k)}${k === aberta ? ' (aberta)' : ''}</option>`).join('');
+  sel.value = atual;
+
+  const lista = $('imp-lista'), resumo = $('imp-resumo'), btn = $('imp-confirmar');
+  if (!S.imp?.itens) {
+    lista.innerHTML = ''; resumo.textContent = ''; btn.style.display = 'none';
     return;
   }
-  showLoading();
-  try {
-    S.categorias[i].name = newName;
-    await saveUserConfig();
-    const comprasRef = collection(db, 'users', currentUser.uid, 'compras');
-    const snap = await getDocs(query(comprasRef, where('cat', '==', oldName)));
-    // writeBatch aceita até 500 operações
-    for (let k = 0; k < snap.docs.length; k += 500) {
-      const batch = writeBatch(db);
-      snap.docs.slice(k, k + 500).forEach(d => batch.update(d.ref, { cat: newName }));
-      await gravar(batch.commit());
-    }
-  } catch (e) {
-    S.categorias[i].name = oldName;
-    input.value = oldName;
-    alert('Erro ao renomear: ' + e.message);
+  const { itens, ignorados } = S.imp;
+  const marcados = itens.filter(it => it.incluir);
+  const dup = itens.filter(it => it.duplicada).length;
+  const soma = marcados.reduce((a, it) => a + it.valorParcela, 0);
+  resumo.innerHTML = `<b>${itens.length}</b> compra(s) no arquivo` +
+    (dup ? ` · <b>${dup}</b> já existe(m) no app (desmarcada)` : '') +
+    (ignorados.length ? ` · <b>${ignorados.length}</b> pagamento(s)/crédito(s) ignorado(s)` : '') +
+    `<br>Selecionadas: <b>${marcados.length}</b> · R$ ${fmt(soma)} nesta fatura`;
+
+  const opcoes = cat => S.categorias.map(c =>
+    `<option value="${esc(c.name)}" ${c.name === cat ? 'selected' : ''}>${esc(c.emoji)} ${esc(c.name)}</option>`).join('');
+  lista.innerHTML = itens.map((it, i) => `
+    <div class="imp-item${it.incluir ? '' : ' off'}">
+      <label class="imp-check"><input type="checkbox" ${it.incluir ? 'checked' : ''} data-change="impToggle" data-i="${i}" aria-label="Importar ${esc(it.desc)}" /></label>
+      <div class="imp-info">
+        <div class="imp-desc">${esc(it.desc)}</div>
+        <div class="imp-meta">${it.dataArquivo.split('-').reverse().join('/')}${it.parcelas > 1 ? ` · parcela ${it.parcelaAtual}/${it.parcelas} · 1ª em ${fatLabel(it.inicio).toLowerCase()}` : ''}${it.duplicada ? ' · <span class="imp-dup">já existe</span>' : ''}</div>
+        <select class="imp-cat" data-change="impCat" data-i="${i}" aria-label="Categoria">${opcoes(it.cat)}</select>
+      </div>
+      <div class="imp-valor">R$ ${fmt(it.valorParcela)}</div>
+    </div>`).join('');
+  btn.style.display = marcados.length ? 'block' : 'none';
+  btn.textContent = `Importar ${marcados.length} compra${marcados.length !== 1 ? 's' : ''}`;
+}
+
+function recalcularImport() {
+  if (!S.imp) return;
+  // Preserva escolhas manuais (categoria / marcação) ao trocar a fatura alvo
+  const antes = S.imp.itens;
+  const r = prepararImportacao(S.imp.linhas, {
+    faturaAlvo: $('imp-fatura').value, fechamento: S.fechamento,
+    compras: S.compras, categorias: S.categorias,
+  });
+  if (antes?.length === r.itens.length) {
+    r.itens.forEach((it, i) => {
+      if (antes[i].catManual) { it.cat = antes[i].cat; it.catManual = true; }
+      if (antes[i].incluirManual !== undefined && !it.duplicada) it.incluir = antes[i].incluirManual;
+    });
   }
-  hideLoading();
-  buildCatSelect();
+  S.imp.itens = r.itens;
+  S.imp.ignorados = r.ignorados;
+  renderImport();
+}
+
+// ============================================================
+//  AÇÕES (despachadas por data-action / data-change / data-input)
+// ============================================================
+const ACOES = {
+  // --- auth ---
+  async doLogin() {
+    const email = $('l-email').value.trim(), pass = $('l-pass').value;
+    if (!email || !pass) return showErr('login-error', 'Preencha e-mail e senha.');
+    showLoading();
+    try { await signInWithEmailAndPassword(auth, email, pass); }
+    catch (e) { hideLoading(); showErr('login-error', traduzirErroAuth(e.code)); }
+  },
+  async doRegister() {
+    const email = $('l-email').value.trim(), pass = $('l-pass').value;
+    if (!email || !pass) return showErr('login-error', 'Preencha e-mail e senha.');
+    if (pass.length < 6) return showErr('login-error', 'Senha mínima: 6 caracteres.');
+    showLoading();
+    try { await createUserWithEmailAndPassword(auth, email, pass); }
+    catch (e) { hideLoading(); showErr('login-error', traduzirErroAuth(e.code)); }
+  },
+  async doReset() {
+    const email = $('l-email').value.trim();
+    if (!email) return showErr('login-error', 'Digite seu e-mail para redefinir a senha.');
+    try { await sendPasswordResetEmail(auth, email); showErr('login-error', '✅ E-mail enviado!', true); }
+    catch (e) { showErr('login-error', traduzirErroAuth(e.code)); }
+  },
+  async doLogout() {
+    if (unsubCompras) unsubCompras();
+    await signOut(auth);
+  },
+
+  // --- navegação ---
+  goHome() { show('scr-home'); setNav('nb-home'); renderHome(); },
+  goAdd()  { openAddForm(null); show('scr-form'); setNav('nb-add'); },
+  goGraf() { show('scr-graf'); setNav('nb-graf'); renderGrafico(); },
+  goSett() {
+    show('scr-sett'); setNav('nb-sett');
+    $('s-user').textContent = currentUser?.email || '-';
+    $('s-fech').value = S.fechamento;
+    buildCatList();
+  },
+  goImport() {
+    S.imp = null;
+    $('imp-arquivo').value = '';
+    $('imp-fatura').value = '';
+    show('scr-import'); setNav('nb-sett');
+    renderImport();
+  },
+
+  // --- home ---
+  selFat(el) { S.faturaAtiva = el.dataset.key; renderHome(); },
+  onFatFilterChange(el) { S.faturaAtiva = el.value; renderHome(); },
+  renderHome() { renderHome(); },
+  filtrarCat(el) {
+    const sel = $('fil-cat');
+    sel.value = sel.value === el.dataset.cat ? '' : el.dataset.cat;
+    renderHome();
+  },
+  editCompra(el) {
+    const c = S.compras.find(x => x.id === el.dataset.id);
+    if (!c) return;
+    openAddForm(c); show('scr-form'); setNav('nb-add');
+  },
+  async confirmDelete(el) {
+    if (!confirm('Remover esta compra?')) return;
+    showLoading();
+    try { await gravar(deleteDoc(doc(comprasRef(), el.dataset.id))); }
+    catch (e) { alert('Erro ao remover: ' + e.message); }
+    hideLoading();
+  },
+
+  // --- formulário ---
+  updateValorHint() {
+    const hint = $('f-val-hint'), v = lerValorParcela();
+    hint.textContent = !v ? '' : v.parcelas > 1
+      ? `${v.parcelas}x de R$ ${fmt(v.valorParcela)} = R$ ${fmt(v.valorParcela * v.parcelas)}`
+      : `À vista: R$ ${fmt(v.valorParcela)}`;
+  },
+  async saveCompra() {
+    const desc = $('f-desc').value.trim(), cat = $('f-cat').value, data = $('f-data').value;
+    const valor = lerValorParcela();
+    if (!desc)  return showErr('form-error', 'Preencha a descrição.');
+    if (!data)  return showErr('form-error', 'Escolha a data.');
+    if (!valor) return showErr('form-error', 'Informe o valor.');
+    const payload = { desc, cat, data, ...valor };
+    showLoading();
+    try {
+      const editId = $('edit-id').value;
+      if (editId) await gravar(updateDoc(doc(comprasRef(), editId), payload));
+      else        await gravar(addDoc(comprasRef(), payload));
+      S.faturaAtiva = getFatKey(data, S.fechamento);
+      ACOES.goHome();
+    } catch (e) {
+      showErr('form-error', 'Erro ao salvar: ' + e.message);
+    }
+    hideLoading();
+  },
+
+  // --- configurações ---
+  async saveFech(el) {
+    const v = parseInt(el.value);
+    if (v >= 1 && v <= 31) { S.fechamento = v; await saveUserConfig(); }
+  },
+  // Renomeia a categoria e leva junto as compras que usam o nome antigo
+  async renameCat(input) {
+    const i = +input.dataset.i;
+    const oldName = S.categorias[i].name, newName = input.value.trim();
+    if (!newName || newName === oldName) { input.value = oldName; return; }
+    if (S.categorias.some(c => c.name === newName)) {
+      alert('Já existe uma categoria com esse nome.');
+      input.value = oldName;
+      return;
+    }
+    showLoading();
+    try {
+      S.categorias[i].name = newName;
+      await saveUserConfig();
+      const snap = await getDocs(query(comprasRef(), where('cat', '==', oldName)));
+      for (let k = 0; k < snap.docs.length; k += 500) {
+        const batch = writeBatch(db);
+        snap.docs.slice(k, k + 500).forEach(d => batch.update(d.ref, { cat: newName }));
+        await gravar(batch.commit());
+      }
+    } catch (e) {
+      S.categorias[i].name = oldName;
+      input.value = oldName;
+      alert('Erro ao renomear: ' + e.message);
+    }
+    hideLoading();
+    buildCatSelect();
+  },
+  async removeCat(el) {
+    const i = +el.dataset.i, name = S.categorias[i].name;
+    const emUso = S.compras.filter(c => c.cat === name).length;
+    const msg = emUso
+      ? `A categoria "${name}" tem ${emUso} compra(s). Elas continuarão com esse nome. Remover mesmo assim?`
+      : `Remover a categoria "${name}"?`;
+    if (!confirm(msg)) return;
+    S.categorias.splice(i, 1);
+    await saveUserConfig();
+    buildCatList(); buildCatSelect();
+  },
+  async addCat() {
+    const e = $('new-cat-e').value.trim() || '🏷️', n = $('new-cat-n').value.trim();
+    if (!n) return;
+    if (S.categorias.some(c => c.name === n)) return alert('Já existe uma categoria com esse nome.');
+    S.categorias.push({ emoji: e, name: n });
+    $('new-cat-n').value = '';
+    await saveUserConfig();
+    buildCatList(); buildCatSelect();
+  },
+
+  // --- exportar ---
+  exportCompras()     { compartilharArquivo(`minhafatura-compras-${hojeISO()}.csv`, csvCompras(S.compras, S.fechamento)); },
+  exportLancamentos() { compartilharArquivo(`minhafatura-lancamentos-${hojeISO()}.csv`, csvLancamentos(S.compras, S.fechamento)); },
+
+  // --- gráficos ---
+  grafSel(el) { S.grafSel = el.dataset.key; renderGrafico(); },
+  grafVerFatura() { S.faturaAtiva = S.grafSel; ACOES.goHome(); },
+
+  // --- importar ---
+  async importArquivo(input) {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const texto = decodificarArquivo(await file.arrayBuffer());
+      const linhas = lerArquivo(texto, file.name);
+      if (!linhas.length) throw new Error('Nenhum lançamento encontrado.');
+      S.imp = { linhas, nome: file.name, itens: null };
+      $('imp-fatura').value = '';
+      renderImport();          // escolhe a fatura provável
+      recalcularImport();
+    } catch (e) {
+      S.imp = null;
+      renderImport();
+      showErr('imp-erro', e.message);
+    }
+  },
+  importRecalc() { recalcularImport(); },
+  impToggle(input) {
+    const it = S.imp.itens[+input.dataset.i];
+    it.incluir = it.incluirManual = input.checked;
+    renderImport();
+  },
+  impCat(sel) {
+    const it = S.imp.itens[+sel.dataset.i];
+    it.cat = sel.value; it.catManual = true;
+  },
+  async importConfirmar() {
+    const marcados = S.imp.itens.filter(it => it.incluir);
+    if (!marcados.length) return;
+    showLoading();
+    try {
+      await adicionarEmLote(marcados.map(({ desc, cat, data, parcelas, valorParcela }) =>
+        ({ desc, cat, data, parcelas, valorParcela, origem: 'importacao' })));
+      S.faturaAtiva = $('imp-fatura').value;
+      S.imp = null;
+      hideLoading();
+      alert(`${marcados.length} compra(s) importada(s).`);
+      ACOES.goHome();
+    } catch (e) {
+      hideLoading();
+      showErr('imp-erro', 'Erro ao importar: ' + e.message);
+    }
+  },
 };
 
-window.removeCat = async function (i) {
-  const name  = S.categorias[i].name;
-  const emUso = S.compras.filter(c => c.cat === name).length;
-  const msg   = emUso
-    ? `A categoria "${name}" tem ${emUso} compra(s). Elas continuarão com esse nome. Remover mesmo assim?`
-    : `Remover a categoria "${name}"?`;
-  if (!confirm(msg)) return;
-  S.categorias.splice(i, 1);
-  await saveUserConfig();
-  buildCatList();
-  buildCatSelect();
-};
+// Um ouvinte por tipo de evento: procura o elemento com data-<tipo> mais próximo
+function despachar(tipo) {
+  return ev => {
+    const el = ev.target.closest(`[data-${tipo}]`);
+    if (!el) return;
+    const acao = ACOES[el.dataset[tipo]];
+    if (!acao) return console.error(`Ação desconhecida: data-${tipo}="${el.dataset[tipo]}"`);
+    acao(el, ev);
+  };
+}
+document.addEventListener('click',  despachar('action'));
+document.addEventListener('change', despachar('change'));
+document.addEventListener('input',  despachar('input'));
 
-window.addCat = async function () {
-  const e = document.getElementById('new-cat-e').value.trim() || '🏷️';
-  const n = document.getElementById('new-cat-n').value.trim();
-  if (!n) return;
-  if (S.categorias.some(c => c.name === n)) return alert('Já existe uma categoria com esse nome.');
-  S.categorias.push({ emoji: e, name: n });
-  document.getElementById('new-cat-n').value = '';
-  await saveUserConfig();
-  buildCatList();
-  buildCatSelect();
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-  const fd = document.getElementById('f-data');
-  if (fd) fd.value = hojeISO();
-});
+// Enter no login envia
+$('l-pass').addEventListener('keydown', e => { if (e.key === 'Enter') ACOES.doLogin(); });
 
 // ============================================================
 //  PWA — service worker
