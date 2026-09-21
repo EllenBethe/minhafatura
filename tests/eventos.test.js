@@ -53,3 +53,7 @@ test('service worker pré-carrega todos os módulos js/', () => {
     assert.ok(sw.includes(`'./js/${f}?v='`), `sw.js não inclui js/${f}`);
   }
 });
+
+test('não usa scrollIntoView (no iPhone ele rola a tela inteira e faz a busca "subir e descer")', () => {
+  for (const txt of [app, ...modulos]) assert.doesNotMatch(txt, /\.scrollIntoView\s*\(/);
+});

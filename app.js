@@ -238,13 +238,21 @@ function setNav(id) {
 // ============================================================
 function buildFatNav(keys) {
   const nav = $('fat-nav');
+  // Só redesenha (e recentraliza) quando as faturas ou a selecionada mudam — digitar na
+  // busca chama renderHome a cada letra e não pode mexer na rolagem
+  const assinatura = keys.join() + '|' + S.faturaAtiva;
+  if (nav.dataset.assinatura === assinatura) return;
+  nav.dataset.assinatura = assinatura;
   nav.innerHTML = keys.map(k =>
     `<button type="button" class="fat-chip ${k === S.faturaAtiva ? 'active' : ''}" data-action="selFat" data-key="${k}"
        aria-pressed="${k === S.faturaAtiva}" aria-label="Fatura de ${fatLabelFull(k)}">${fatLabel(k)}</button>`
   ).join('');
-  setTimeout(() => {
-    nav.querySelector('.fat-chip.active')?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-  }, 50);
+  // Centraliza a fatura ativa rolando SÓ a barra na horizontal (scrollIntoView rolava a
+  // tela inteira até a barra, e o iPhone descia de volta para o campo: "sobe e desce")
+  requestAnimationFrame(() => {
+    const ativo = nav.querySelector('.fat-chip.active');
+    if (ativo) nav.scrollTo({ left: ativo.offsetLeft - (nav.clientWidth - ativo.offsetWidth) / 2, behavior: 'smooth' });
+  });
 }
 
 function buildFatFilter(keys) {
