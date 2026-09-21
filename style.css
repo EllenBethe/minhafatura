@@ -264,6 +264,7 @@ select:focus-visible {
 
 /* ===== FATURA NAV ===== */
 .fatura-nav {
+  position: relative;   /* offsetLeft dos meses medido a partir da barra */
   display: flex;
   gap: 8px;
   overflow-x: auto;
@@ -827,3 +828,5 @@ input[type="file"].inp { padding: 9px; font-size: 14px; }
 .cat-resumo-row .cr-linha { flex: 1; gap: 8px; }
 .cat-resumo-row .cr-linha { display: flex; width: 100%; justify-content: space-between; align-items: center; }
 .chk.full { grid-column: 1 / -1; }
+/* altura mínima: filtrar/buscar não encolhe a tela (senão a rolagem "pula" com o teclado aberto) */
+.compras-list { min-height: 65dvh; }
