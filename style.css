@@ -726,7 +726,7 @@ input[type="file"].inp { padding: 9px; font-size: 14px; }
 .compra-card .cc-mid { margin-top: 10px; }
 
 /* resumo da fatura (fundo verde-água) */
-.cat-resumo-row span { display: inline-flex; align-items: center; gap: 8px; }
+.cat-resumo-row .cr-linha > span { display: inline-flex; align-items: center; gap: 8px; }
 /* no fundo verde-água as cores se misturam: borda clara separa o quadradinho */
 .chip-resumo { width: 22px; height: 22px; border-radius: 6px; box-shadow: 0 0 0 1.5px rgba(255,255,255,0.55); }
 .chip-resumo .ic { width: 13px; height: 13px; }
@@ -762,3 +762,68 @@ input[type="file"].inp { padding: 9px; font-size: 14px; }
   font-size: 10.5px; color: var(--muted); text-align: center; line-height: 1.2;
 }
 .ip-item.sel { border-color: var(--teal); color: var(--white); }
+
+/* ===== v9: ícones da interface, busca, orçamento, estornos, regras ===== */
+[data-ico] .ic, .cc-act-btn .ic { width: 1.15em; height: 1.15em; }
+.nav-ic { color: var(--muted); height: 24px; display: flex; align-items: center; }
+.nav-ic .ic { width: 23px; height: 23px; }
+.nav-btn.active .nav-ic { color: var(--teal); }
+.back-btn { color: var(--muted); display: inline-flex; align-items: center; }
+.back-btn .ic { width: 26px; height: 26px; }
+.cc-act-btn { color: var(--muted); padding: 6px; border-radius: 8px; display: inline-flex; }
+.cc-act-btn:active { background: rgba(255,255,255,0.06); }
+.btn-ic { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.btn-ic [data-ico] { display: inline-flex; }
+.btn-sm[data-ico] { display: inline-flex; align-items: center; justify-content: center; padding: 9px 12px; }
+.btn-sm .ic { width: 18px; height: 18px; }
+
+/* busca */
+.search-row { display: flex; gap: 8px; align-items: center; }
+.search-box { position: relative; flex: 1; min-width: 0; }
+.search-ic { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); display: flex; pointer-events: none; }
+.search-ic .ic { width: 17px; height: 17px; }
+.search-box .search-inp { padding-left: 36px; }
+.busca-todas {
+  flex-shrink: 0; background: var(--card); border: 0.5px solid var(--border); border-radius: 10px;
+  color: var(--muted); font-family: inherit; font-size: 12px; font-weight: 600; padding: 11px 10px; cursor: pointer;
+}
+.busca-todas.on { background: var(--teal-bg); border-color: var(--teal); color: var(--teal); }
+
+/* orçamento no resumo da fatura */
+.cat-resumo-row.com-orc { flex-direction: column; align-items: stretch; gap: 3px; padding: 5px 0; }
+.cr-linha { display: flex; justify-content: space-between; align-items: center; }
+.cat-resumo-row .orc { display: flex; flex-direction: column; gap: 3px; padding-left: 30px; text-align: left; }
+.cat-resumo-row .orc-bar { width: 100%; height: 4px; border-radius: 3px; background: rgba(0,0,0,0.18); overflow: hidden; display: block; }
+.orc-bar i { display: block; height: 100%; background: rgba(255,255,255,0.85); border-radius: 3px; }
+.orc small { font-size: 10.5px; color: rgba(255,255,255,0.75); text-align: left; }
+.orc.acima .orc-bar i { background: #ffd166; }
+.orc.acima small { color: #fff; font-weight: 700; }
+.orc-row { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+.orc-row .inp { max-width: 180px; }
+
+/* estornos */
+.compra-card.estorno .cc-valor, .imp-valor.estorno { color: #4ade80; }
+.imp-estorno { color: #4ade80; }
+.chk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); cursor: pointer; }
+.chk input { width: 20px; height: 20px; accent-color: var(--teal); }
+.inp:disabled { opacity: 0.45; }
+
+/* regras de categoria */
+.regra-item { display: flex; align-items: center; gap: 6px; padding: 5px 0; }
+.regra-inp { flex: 1.1; min-width: 0; padding: 9px 10px; }
+.regra-cat { flex: 1; min-width: 0; padding: 9px 10px; }
+.regra-seta { color: var(--muted); flex-shrink: 0; }
+.regra-nova { border-top: 0.5px solid var(--border); margin-top: 4px; padding-top: 10px; }
+
+/* histórico de importações */
+.imp-hist-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 9px 0; border-top: 0.5px solid var(--border);
+}
+.imp-hist-item:first-child { border-top: none; }
+.imp-hist-tit { font-size: 13px; font-weight: 600; color: var(--white); word-break: break-all; }
+.btn-desfazer { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 7px 10px; }
+.btn-desfazer .ic { width: 15px; height: 15px; }
+.cat-resumo-row .cr-linha { flex: 1; gap: 8px; }
+.cat-resumo-row .cr-linha { display: flex; width: 100%; justify-content: space-between; align-items: center; }
+.chk.full { grid-column: 1 / -1; }

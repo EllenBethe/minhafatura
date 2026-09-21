@@ -38,11 +38,17 @@ import {
 import {
   MONTHS, hojeISO, addMonths, getFatKey, fatKeyOf, getEndFatKey, parcelaNaFatura,
   fatLabel, fatLabelFull, faturasAtivas, comprasDaFatura, resumoPorCategoria, fmt, esc, arred,
+  casaBusca, buscarCompras,
 } from './js/fatura.js?v=8';
-import { decodificarArquivo, lerArquivo, prepararImportacao, sugerirFechamento, categoriaPorNome } from './js/importar.js?v=8';
+import {
+  decodificarArquivo, lerArquivo, prepararImportacao, sugerirFechamento, categoriaPorNome,
+  reclassificacoes, agruparImportacoes,
+} from './js/importar.js?v=8';
 import { csvCompras, csvLancamentos } from './js/exportar.js?v=8';
 import { modeloGrafico, svgGrafico } from './js/grafico.js?v=8';
-import { ICONES, CORES, iconeDe, iconePorNome, corDe, corDoIcone, chip, chipCategoria } from './js/icones.js?v=8';
+import {
+  ICONES, CORES, iconeDe, iconePorNome, corDe, corDoIcone, chip, chipCategoria, preencherIconesUI, svgUI,
+} from './js/icones.js?v=8';
 
 // ============================================================
 //  FIREBASE
@@ -78,6 +84,8 @@ const S = {
   imp: null,         // importação em andamento: { linhas, itens, ignorados, nome }
   catEscolhidaForm: false,   // categoria do formulário escolhida à mão (para de sugerir)
   iconeCat: null,            // índice da categoria com o seletor de ícone aberto
+  regras: [],                // regras da usuária: [{ contem, cat }]
+  buscaTodas: false,         // busca em todas as faturas (e não só na aberta na tela)
 };
 
 const DEFAULT_CATEGORIAS = [
@@ -99,6 +107,8 @@ const faturaAberta = () => getFatKey(hojeISO(), S.fechamento);
 // Quadradinho colorido com o ícone da categoria (escolhidos em Config ou automáticos pelo nome)
 const chipDe = (nome, classe) => chipCategoria(S.categorias.find(c => c.name === nome) || { name: nome }, classe);
 const maiuscula = s => s.charAt(0).toUpperCase() + s.slice(1);
+// Estorno/crédito é negativo: "− R$ 50,00"
+const reais = v => (v < 0 ? '− ' : '') + 'R$ ' + fmt(Math.abs(v));
 
 // ============================================================
 //  HELPERS
@@ -133,6 +143,7 @@ async function loadUserConfig() {
     const d = snap.data();
     S.fechamento = d.fechamento ?? 10;
     S.categorias = d.categorias ?? DEFAULT_CATEGORIAS.map(c => ({ ...c }));
+    S.regras     = d.regras ?? [];
   } else {
     S.fechamento = 10;
     S.categorias = DEFAULT_CATEGORIAS.map(c => ({ ...c }));
@@ -142,7 +153,7 @@ async function loadUserConfig() {
 
 async function saveUserConfig() {
   const ref = doc(db, 'users', currentUser.uid);
-  await gravar(setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias }, { merge: true }));
+  await gravar(setDoc(ref, { fechamento: S.fechamento, categorias: S.categorias, regras: S.regras }, { merge: true }));
 }
 
 function listenCompras() {
@@ -151,6 +162,7 @@ function listenCompras() {
     S.compras = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderHome();
     renderGrafico();
+    if ($('scr-sett').classList.contains('active')) buildImportacoes();
   }, (e) => {
     console.error(e);
     alert('Erro ao carregar compras: ' + e.message);
@@ -269,7 +281,7 @@ function renderHome() {
   $('fat-label').textContent    = `Fatura de ${MONTHS[parseInt(fm) - 1]} de ${fy}`;
   $('fat-sub-info').textContent = `Fecha no dia ${S.fechamento}`;
 
-  const search = $('search').value.toLowerCase();
+  const search = $('search').value.trim();
   const filCat = $('fil-cat').value;
   let compras  = comprasDaFatura(S.compras, fat, S.fechamento);
 
@@ -278,21 +290,34 @@ function renderHome() {
   const catKeys = Object.keys(catMap).sort((a, b) => catMap[b] - catMap[a]);
   $('cat-resumo').innerHTML = catKeys.length === 0
     ? '<div class="cat-resumo-vazio">Sem lançamentos</div>'
-    : catKeys.map(k => `<button type="button" class="cat-resumo-row ${k === filCat ? 'active' : ''}" data-action="filtrarCat"
-        data-cat="${esc(k)}" aria-pressed="${k === filCat}">
-        <span>${chipDe(k, 'chip-resumo')}${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></button>`).join('');
+    : catKeys.map(k => {
+        const orc = S.categorias.find(c => c.name === k)?.orcamento || 0;
+        const pct = orc ? Math.min(100, Math.round(catMap[k] / orc * 100)) : 0;
+        const acima = orc && catMap[k] > orc;
+        const barra = orc ? `<span class="orc${acima ? ' acima' : ''}">
+            <span class="orc-bar"><i style="width:${pct}%"></i></span>
+            <small>${acima ? `▲ ${reais(catMap[k] - orc)} acima do orçamento de ${reais(orc)}` : `${pct}% de ${reais(orc)}`}</small>
+          </span>` : '';
+        return `<button type="button" class="cat-resumo-row ${k === filCat ? 'active' : ''}${orc ? ' com-orc' : ''}" data-action="filtrarCat"
+          data-cat="${esc(k)}" aria-pressed="${k === filCat}">
+          <span class="cr-linha"><span>${chipDe(k, 'chip-resumo')}${esc(k)}</span><b>${reais(catMap[k])}</b></span>${barra}</button>`;
+      }).join('');
 
   const total = arred(Object.values(catMap).reduce((a, b) => a + b, 0));
-  $('fat-total').textContent = `R$ ${fmt(total)}`;
+  $('fat-total').textContent = reais(total);
   $('fat-count').textContent = `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}`;
+
+  // Busca em todas as faturas: lista própria, com o valor total de cada compra
+  $('busca-todas').setAttribute('aria-pressed', S.buscaTodas);
+  $('busca-todas').classList.toggle('on', S.buscaTodas);
+  if (S.buscaTodas && search) return renderBuscaGeral(search, filCat);
 
   // Filtros de categoria e busca (afetam só a lista)
   if (filCat) compras = compras.filter(c => c.cat === filCat);
-  if (search) compras = compras.filter(c =>
-    c.desc?.toLowerCase().includes(search) || c.cat?.toLowerCase().includes(search));
+  if (search) compras = compras.filter(c => casaBusca(c, search));
 
   const soma = compras.reduce((a, c) => a + c.valorParcela, 0);
-  $('sec-title').textContent = filCat ? `${filCat} · R$ ${fmt(soma)}` : 'compras da fatura';
+  $('sec-title').textContent = filCat ? `${filCat} · ${reais(soma)}` : 'compras da fatura';
 
   const list = $('compras-list');
   if (compras.length === 0) {
@@ -303,11 +328,17 @@ function renderHome() {
   list.innerHTML = compras.map(c => {
     const parAtual = parcelaNaFatura(c, fat, S.fechamento);
     const endKey   = getEndFatKey(fatKeyOf(c, S.fechamento), c.parcelas);
-    const parLabel = c.parcelas > 1 ? `Parcela ${parAtual} de ${c.parcelas}` : 'À vista';
+    const parLabel = c.valorParcela < 0 ? 'Estorno / crédito' : c.parcelas > 1 ? `Parcela ${parAtual} de ${c.parcelas}` : 'À vista';
     const finLabel = c.parcelas > 1 ? `Finaliza: ${fatLabelFull(endKey)}` : '';
     const pct      = c.parcelas > 1 ? Math.min(100, Math.round((parAtual / c.parcelas) * 100)) : 100;
 
-    return `<div class="compra-card">
+    return cartaoCompra(c, parLabel, finLabel, pct);
+  }).join('');
+}
+
+// Cartão de compra (usado na fatura e na busca geral); pct === null esconde a barra
+function cartaoCompra(c, parLabel, finLabel, pct) {
+    return `<div class="compra-card${c.valorParcela < 0 ? ' estorno' : ''}">
       <div class="cc-top">
         <div class="cc-head">
           ${chipDe(c.cat)}
@@ -317,8 +348,8 @@ function renderHome() {
           </div>
         </div>
         <div class="cc-actions">
-          <button type="button" class="cc-act-btn" data-action="editCompra" data-id="${esc(c.id)}" aria-label="Editar">✏️</button>
-          <button type="button" class="cc-act-btn" data-action="confirmDelete" data-id="${esc(c.id)}" aria-label="Remover">🗑️</button>
+          <button type="button" class="cc-act-btn" data-action="editCompra" data-id="${esc(c.id)}" aria-label="Editar">${svgUI('pencil')}</button>
+          <button type="button" class="cc-act-btn" data-action="confirmDelete" data-id="${esc(c.id)}" aria-label="Remover">${svgUI('trash-2')}</button>
         </div>
       </div>
       <div class="cc-mid">
@@ -326,10 +357,29 @@ function renderHome() {
           <div class="cc-parcela-txt">${parLabel}</div>
           ${finLabel ? `<div class="cc-finaliza">${finLabel}</div>` : ''}
         </div>
-        <div class="cc-valor">R$ ${fmt(c.valorParcela)}</div>
+        <div class="cc-valor">${reais(c.valorParcela)}</div>
       </div>
-      <div class="prog-bg"><div class="prog-fill" style="width:${pct}%"></div></div>
+      ${pct === null ? '' : `<div class="prog-bg"><div class="prog-fill" style="width:${pct}%"></div></div>`}
     </div>`;
+}
+
+// Resultado da busca em todas as faturas (mais recentes primeiro)
+function renderBuscaGeral(termo, filCat) {
+  let { achadas, total } = buscarCompras(S.compras, termo);
+  if (filCat) {
+    achadas = achadas.filter(c => c.cat === filCat);
+    total = arred(achadas.reduce((a, c) => a + c.valorParcela * c.parcelas, 0));
+  }
+  $('sec-title').textContent = `${achadas.length} compra${achadas.length !== 1 ? 's' : ''} em todas as faturas · ${reais(total)}`;
+  const list = $('compras-list');
+  if (!achadas.length) { list.innerHTML = '<div class="empty">Nada encontrado em nenhuma fatura</div>'; return; }
+  list.innerHTML = achadas.map(c => {
+    const ini = fatKeyOf(c, S.fechamento), fim = getEndFatKey(ini, c.parcelas);
+    const dataBR = (c.data || '').split('-').reverse().join('/');
+    const parLabel = c.valorParcela < 0 ? `Estorno / crédito · ${dataBR}`
+      : c.parcelas > 1 ? `${c.parcelas}x de ${reais(c.valorParcela)} · ${dataBR}` : `À vista · ${dataBR}`;
+    const finLabel = c.parcelas > 1 ? `Faturas: ${fatLabel(ini)} a ${fatLabel(fim)}` : `Fatura: ${fatLabel(ini)}`;
+    return cartaoCompra({ ...c, valorParcela: arred(c.valorParcela * c.parcelas) }, parLabel, finLabel, null);
   }).join('');
 }
 
@@ -350,7 +400,8 @@ function openAddForm(compra) {
   $('f-data').value           = compra?.data || hojeISO();
   $('f-parc').value           = compra?.parcelas || 1;
   $('f-tipo-val').value       = 'parcela';
-  $('f-val').value            = compra?.valorParcela || '';
+  $('f-val').value            = compra ? Math.abs(compra.valorParcela) : '';
+  $('f-estorno').checked      = compra?.valorParcela < 0;
   // Em compra nova, a categoria acompanha o nome digitado até ser escolhida à mão
   S.catEscolhidaForm = !!compra;
   ACOES.updateValorHint();
@@ -361,6 +412,8 @@ function lerValorParcela() {
   const parcelas = Math.max(1, parseInt($('f-parc').value) || 1);
   const valor    = parseFloat($('f-val').value);
   if (!valor || valor <= 0) return null;
+  // Estorno/crédito: valor único negativo, abate da fatura
+  if ($('f-estorno').checked) return { parcelas: 1, valorParcela: -arred(valor) };
   const parcela  = $('f-tipo-val').value === 'total' ? valor / parcelas : valor;
   return { parcelas, valorParcela: arred(parcela) };
 }
@@ -375,6 +428,44 @@ function buildCatList() {
       <input class="resp-name-inp" value="${esc(c.name)}" data-change="renameCat" data-i="${i}" aria-label="Nome da categoria" />
       <button type="button" class="btn-del" data-action="removeCat" data-i="${i}" aria-label="Remover categoria">✕</button>
     </div>`).join('');
+}
+
+// Regras "nome contém X → categoria Y"
+function buildRegras() {
+  const opcoes = sel => S.categorias.map(c =>
+    `<option value="${esc(c.name)}" ${c.name === sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  $('regras-lista').innerHTML = S.regras.length
+    ? S.regras.map((r, i) => `
+      <div class="regra-item">
+        <input class="inp regra-inp" value="${esc(r.contem)}" data-change="regraTexto" data-i="${i}" aria-label="Texto da regra" />
+        <span class="regra-seta" aria-hidden="true">→</span>
+        <select class="inp regra-cat" data-change="regraCat" data-i="${i}" aria-label="Categoria da regra">${opcoes(r.cat)}</select>
+        <button type="button" class="btn-del" data-action="removerRegra" data-i="${i}" aria-label="Remover regra">✕</button>
+      </div>`).join('')
+    : '<p class="graf-nota" style="margin:0 0 8px">Nenhuma regra ainda. Ex.: “shopee” → Compras.</p>';
+  $('regra-nova-cat').innerHTML = opcoes($('regra-nova-cat').value || S.categorias.find(c => /outro/i.test(c.name))?.name);
+}
+
+// Importações feitas, com opção de desfazer
+function buildImportacoes() {
+  const grupos = agruparImportacoes(S.compras);
+  $('imp-hist').innerHTML = grupos.length ? grupos.map(g => {
+    const quando = g.quando ? new Date(g.quando).toLocaleDateString('pt-BR') : 'antes do histórico';
+    return `<div class="imp-hist-item">
+      <div><div class="imp-hist-tit">${esc(g.arquivo || 'Importação')}</div>
+        <div class="imp-meta">${quando} · ${g.ids.length} compra(s) · ${reais(g.total)}</div></div>
+      <button type="button" class="btn-sm btn-desfazer" data-action="desfazerImport" data-id="${esc(g.id)}">${svgUI('undo-2')} Desfazer</button>
+    </div>`;
+  }).join('') : '<p class="graf-nota" style="margin:0">Nenhuma importação ainda.</p>';
+}
+
+// Apaga muitas compras de uma vez (writeBatch aceita até 500 operações)
+async function apagarEmLote(ids) {
+  for (let k = 0; k < ids.length; k += 500) {
+    const batch = writeBatch(db);
+    ids.slice(k, k + 500).forEach(id => batch.delete(doc(comprasRef(), id)));
+    await gravar(batch.commit());
+  }
 }
 
 // ============================================================
@@ -472,6 +563,7 @@ function renderImport() {
   const marcados = itens.filter(it => it.incluir);
   const dup = itens.filter(it => it.duplicada).length;
   const soma = marcados.reduce((a, it) => a + it.valorParcela, 0);
+  const estornos = itens.filter(it => it.estorno).length;
   // Compras à vista do arquivo que, pelo dia de fechamento configurado, cairiam em outra fatura
   const alvo = sel.value;
   const foraDaFatura = S.imp.linhas.filter(l => l.valor > 0 && !l.parcela && getFatKey(l.data, S.fechamento) !== alvo).length;
@@ -483,8 +575,9 @@ function renderImport() {
     : '';
   resumo.innerHTML = aviso + `<b>${itens.length}</b> compra(s) no arquivo` +
     (dup ? ` · <b>${dup}</b> parece(m) já lançada(s) no app (desmarcada)` : '') +
-    (ignorados.length ? ` · <b>${ignorados.length}</b> pagamento(s)/crédito(s) ignorado(s)` : '') +
-    `<br>Selecionadas: <b>${marcados.length}</b> · R$ ${fmt(soma)} nesta fatura`;
+    (estornos ? ` · <b>${estornos}</b> estorno(s)/crédito(s) que abatem a fatura` : '') +
+    (ignorados.length ? ` · <b>${ignorados.length}</b> pagamento(s) ignorado(s)` : '') +
+    `<br>Selecionadas: <b>${marcados.length}</b> · ${reais(soma)} nesta fatura`;
 
   const opcoes = cat => S.categorias.map(c =>
     `<option value="${esc(c.name)}" ${c.name === cat ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
@@ -493,10 +586,10 @@ function renderImport() {
       <label class="imp-check"><input type="checkbox" ${it.incluir ? 'checked' : ''} data-change="impToggle" data-i="${i}" aria-label="Importar ${esc(it.desc)}" /></label>
       <div class="imp-info">
         <div class="imp-desc">${esc(it.desc)}</div>
-        <div class="imp-meta">${it.dataArquivo.split('-').reverse().join('/')}${it.parcelas > 1 ? ` · parcela ${it.parcelaAtual}/${it.parcelas} · 1ª em ${fatLabel(it.inicio).toLowerCase()}` : ''}${it.duplicada ? ' · <span class="imp-dup">parece já lançada</span>' : ''}</div>
+        <div class="imp-meta">${it.dataArquivo.split('-').reverse().join('/')}${it.parcelas > 1 ? ` · parcela ${it.parcelaAtual}/${it.parcelas} · 1ª em ${fatLabel(it.inicio).toLowerCase()}` : ''}${it.estorno ? ' · <span class="imp-estorno">estorno</span>' : ''}${it.duplicada ? ' · <span class="imp-dup">parece já lançada</span>' : ''}</div>
         <select class="imp-cat" data-change="impCat" data-i="${i}" aria-label="Categoria">${opcoes(it.cat)}</select>
       </div>
-      <div class="imp-valor">R$ ${fmt(it.valorParcela)}</div>
+      <div class="imp-valor${it.estorno ? ' estorno' : ''}">${reais(it.valorParcela)}</div>
     </div>`).join('');
   btn.style.display = marcados.length ? 'block' : 'none';
   btn.textContent = `Importar ${marcados.length} compra${marcados.length !== 1 ? 's' : ''}`;
@@ -508,7 +601,7 @@ function recalcularImport() {
   const antes = S.imp.itens;
   const r = prepararImportacao(S.imp.linhas, {
     faturaAlvo: $('imp-fatura').value, fechamento: S.fechamento,
-    compras: S.compras, categorias: S.categorias,
+    compras: S.compras, categorias: S.categorias, regras: S.regras,
   });
   if (antes?.length === r.itens.length) {
     r.itens.forEach((it, i) => {
@@ -528,6 +621,7 @@ function renderSeletorIcone() {
   const corAtual = cat.cor && CORES[cat.cor] ? cat.cor : '';
   const cor = corDe(cat);
   $('ip-tit').innerHTML = `${chipCategoria(cat, 'chip-grande')}<span>${esc(cat.name)}</span>`;
+  $('ip-orc').value = cat.orcamento || '';
   $('ip-cores').innerHTML =
     `<button type="button" class="cor-item auto${corAtual ? '' : ' sel'}" data-action="escolherCor" data-cor=""
        aria-pressed="${!corAtual}" aria-label="Cor automática" style="--cor:${CORES[corDoIcone(iconeDe(cat))][1]}">A</button>` +
@@ -582,6 +676,8 @@ const ACOES = {
     $('s-user').textContent = currentUser?.email || '-';
     $('s-fech').value = S.fechamento;
     buildCatList();
+    buildRegras();
+    buildImportacoes();
     ACOES.previewIconeNovo();
   },
   goImport() {
@@ -617,15 +713,19 @@ const ACOES = {
   // --- formulário ---
   sugerirCatForm(input) {
     if (S.catEscolhidaForm) return;
-    const cat = categoriaPorNome(input.value, S.compras, S.categorias);
+    const cat = categoriaPorNome(input.value, S.compras, S.categorias, S.regras);
     if (cat) $('f-cat').value = cat;
   },
   catEscolhidaForm() { S.catEscolhidaForm = true; },
   updateValorHint() {
     const hint = $('f-val-hint'), v = lerValorParcela();
-    hint.textContent = !v ? '' : v.parcelas > 1
-      ? `${v.parcelas}x de R$ ${fmt(v.valorParcela)} = R$ ${fmt(v.valorParcela * v.parcelas)}`
-      : `À vista: R$ ${fmt(v.valorParcela)}`;
+    // Estorno: parcelas e "valor total/parcela" não se aplicam
+    $('f-parc').disabled = $('f-tipo-val').disabled = $('f-estorno').checked;
+    hint.textContent = !v ? '' : v.valorParcela < 0
+      ? `Estorno / crédito: ${reais(v.valorParcela)} (abate da fatura)`
+      : v.parcelas > 1
+        ? `${v.parcelas}x de ${reais(v.valorParcela)} = ${reais(v.valorParcela * v.parcelas)}`
+        : `À vista: ${reais(v.valorParcela)}`;
   },
   async saveCompra() {
     const desc = $('f-desc').value.trim(), cat = $('f-cat').value, data = $('f-data').value;
@@ -721,8 +821,65 @@ const ACOES = {
     renderSeletorIcone(); buildCatList();
     await saveUserConfig();
   },
-  fecharIcones() { $('icon-picker').style.display = 'none'; },
+  async salvarOrcamento(input) {
+    const cat = S.categorias[S.iconeCat], v = parseFloat(input.value);
+    if (v > 0) cat.orcamento = arred(v); else delete cat.orcamento;
+    buildCatList();
+    await saveUserConfig();
+  },
+  fecharIcones() { $('icon-picker').style.display = 'none'; renderHome(); },
   nada() {},   // cliques dentro da caixa do seletor não fecham o fundo
+
+  // --- regras de categoria ---
+  async addRegra() {
+    const contem = $('regra-nova-txt').value.trim(), cat = $('regra-nova-cat').value;
+    if (!contem || !cat) return;
+    S.regras.push({ contem, cat });
+    $('regra-nova-txt').value = '';
+    buildRegras();
+    await saveUserConfig();
+  },
+  async regraTexto(input) {
+    const v = input.value.trim();
+    if (!v) { input.value = S.regras[+input.dataset.i].contem; return; }
+    S.regras[+input.dataset.i].contem = v;
+    await saveUserConfig();
+  },
+  async regraCat(sel) { S.regras[+sel.dataset.i].cat = sel.value; await saveUserConfig(); },
+  async removerRegra(el) {
+    S.regras.splice(+el.dataset.i, 1);
+    buildRegras();
+    await saveUserConfig();
+  },
+  async aplicarRegras() {
+    const mudancas = reclassificacoes(S.compras, S.categorias, S.regras);
+    if (!mudancas.length) return alert('Nenhuma compra muda de categoria com as regras atuais.');
+    const exemplos = mudancas.slice(0, 6).map(m => `• ${m.desc}: ${m.de} → ${m.para}`).join('\n');
+    if (!confirm(`${mudancas.length} compra(s) vão mudar de categoria:\n\n${exemplos}${mudancas.length > 6 ? '\n…' : ''}\n\nAplicar?`)) return;
+    showLoading();
+    try {
+      for (let k = 0; k < mudancas.length; k += 500) {
+        const batch = writeBatch(db);
+        mudancas.slice(k, k + 500).forEach(m => batch.update(doc(comprasRef(), m.id), { cat: m.para }));
+        await gravar(batch.commit());
+      }
+      hideLoading();
+      alert(`${mudancas.length} compra(s) reclassificada(s).`);
+    } catch (e) { hideLoading(); alert('Erro ao reclassificar: ' + e.message); }
+  },
+
+  // --- desfazer importação ---
+  async desfazerImport(el) {
+    const g = agruparImportacoes(S.compras).find(x => x.id === el.dataset.id);
+    if (!g) return;
+    if (!confirm(`Apagar as ${g.ids.length} compra(s) dessa importação (${reais(g.total)})? Isso não pode ser desfeito.`)) return;
+    showLoading();
+    try { await apagarEmLote(g.ids); hideLoading(); buildImportacoes(); }
+    catch (e) { hideLoading(); alert('Erro ao desfazer: ' + e.message); }
+  },
+
+  // --- busca ---
+  toggleBuscaTodas() { S.buscaTodas = !S.buscaTodas; renderHome(); },
 
   // --- exportar ---
   exportCompras()     { compartilharArquivo(`minhafatura-compras-${hojeISO()}.csv`, csvCompras(S.compras, S.fechamento)); },
@@ -774,8 +931,10 @@ const ACOES = {
     if (!marcados.length) return;
     showLoading();
     try {
+      // importId identifica o lote, para poder desfazer a importação inteira depois
+      const lote = { origem: 'importacao', importId: Date.now().toString(36), importadoEm: new Date().toISOString(), importArquivo: S.imp.nome || '' };
       await adicionarEmLote(marcados.map(({ desc, cat, data, parcelas, valorParcela }) =>
-        ({ desc, cat, data, parcelas, valorParcela, origem: 'importacao' })));
+        ({ desc, cat, data, parcelas, valorParcela, ...lote })));
       S.faturaAtiva = $('imp-fatura').value;
       S.imp = null;
       hideLoading();
@@ -801,6 +960,9 @@ function despachar(tipo) {
 document.addEventListener('click',  despachar('action'));
 document.addEventListener('change', despachar('change'));
 document.addEventListener('input',  despachar('input'));
+
+// Ícones da interface (barra de baixo, voltar, importar/exportar...)
+preencherIconesUI();
 
 // Enter no login envia
 $('l-pass').addEventListener('keydown', e => { if (e.key === 'Enter') ACOES.doLogin(); });
