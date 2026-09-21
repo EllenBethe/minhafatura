@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseValor, parseData, parseParcela, dividirLinhaCSV, lerArquivo, decodificarArquivo,
-  sugerirCategoria, prepararImportacao, limparDesc, sugerirFechamento,
+  sugerirCategoria, prepararImportacao, limparDesc, sugerirFechamento, categoriaPorNome,
 } from '../js/importar.js';
 import { getFatKey, fatKeyOf, parcelaNaFatura } from '../js/fatura.js';
 
@@ -194,6 +194,45 @@ test('sugerirFechamento pelo período das compras à vista', () => {
     .map(data => ({ data, valor: 10, parcela: null }));
   assert.equal(sugerirFechamento(l), 6);
   assert.equal(sugerirFechamento(l.slice(0, 2)), null);   // poucas compras
+});
+
+test('regras fixas: supermercado/mercado → Supermercado; posto/shell → Gasolina (acima do histórico)', () => {
+  const cats = ['Mercado', 'Supermercado', 'Gasolina', 'Manutenção do Carro', 'Outros'].map(name => ({ name, emoji: '' }));
+  const historico = [
+    { desc: 'Giassi Supermercados', cat: 'Mercado' },          // importado antes da categoria nova
+    { desc: 'Posto Almirante', cat: 'Manutenção do Carro' },
+  ];
+  const cat = desc => sugerirCategoria({ desc }, historico, cats);
+  assert.equal(cat('Giassi Supermercados'), 'Supermercado');
+  assert.equal(cat('Casa.Express Supermer'), 'Supermercado');
+  assert.equal(cat('Mercado do Bairro'), 'Supermercado');
+  assert.equal(cat('Mercadolivre*Minagua'), 'Outros');
+  assert.equal(cat('Mercado Pago*Loja'), 'Outros');
+  assert.equal(cat('Posto Almirante'), 'Gasolina');
+  assert.equal(cat('Auto Posto Bela Joia L'), 'Gasolina');
+  assert.equal(cat('Ec *Shellbox'), 'Gasolina');
+  assert.equal(cat('Michelle Cabeleireira'), 'Outros');       // "shell" no meio da palavra não conta
+  assert.equal(cat('Baterblu Baterias'), 'Manutenção do Carro');
+});
+
+test('estacionamento → Conjunto/Casa, ou Outros se não existir', () => {
+  const comCasa = ['Conjunto/Casa', 'Manutenção do Carro', 'Outros'].map(name => ({ name, emoji: '' }));
+  assert.equal(sugerirCategoria({ desc: 'Rek Parking *Rekpay' }, [], comCasa), 'Conjunto/Casa');
+  assert.equal(sugerirCategoria({ desc: 'Parkhaus Estacionament' }, [], comCasa), 'Conjunto/Casa');
+  assert.equal(sugerirCategoria({ desc: 'Parkhaus Estacionament' }, [], CATEGORIAS), 'Outros');
+});
+
+test('regras fixas caem na próxima candidata se a categoria não existir', () => {
+  assert.equal(sugerirCategoria({ desc: 'Posto Shell' }, [], CATEGORIAS), 'Manutenção do Carro');
+  assert.equal(sugerirCategoria({ desc: 'Supermercado Dia' }, [], CATEGORIAS), 'Mercado');
+});
+
+test('categoriaPorNome (formulário): só sugere com regra ou histórico', () => {
+  const cats = ['Supermercado', 'Gasolina', 'Outros'].map(name => ({ name, emoji: '' }));
+  assert.equal(categoriaPorNome('posto shell', [], cats), 'Gasolina');
+  assert.equal(categoriaPorNome('mercado', [], cats), 'Supermercado');
+  assert.equal(categoriaPorNome('presente', [], cats), null);
+  assert.equal(categoriaPorNome('Presente mãe', [{ desc: 'presente mae', cat: 'Outros' }], cats), 'Outros');
 });
 
 test('limparDesc', () => {

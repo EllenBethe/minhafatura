@@ -146,34 +146,78 @@ export function lerArquivo(texto, nome = '') {
 
 // ---------- categorias ----------
 
-// Palavra-chave → nome de categoria padrão (usado só se a categoria existir)
-const REGRAS = [
-  // "mercado" sem pegar Mercado Livre / Mercado Pago
-  ['Mercado', /supermer|(?<!super)mercado(?! ?livre| ?pago)|carrefour|assai|atacad|pao de acucar|hortifruti|sacolao|dia brasil|zaffari|savegnago|hiper|giassi|angeloni|cooper filial|bistek|komprao|fort atacadista|condor|muffato|big ?bompreco|sonda|st marche/],
-  ['Alimentação', /ifood|\bifd\*|restaur|lanchon|padaria|panific|\bpao\b|confeit|doces|salgad|strudel|marmita|gastronom|burger|mc ?donald|pizza|rappi|cafe|sushi|churrasc|\bbk\b|subway|outback|coco bambu|aiqfome|99food|nonna|sorvet|acai|pastel/],
-  ['Assinaturas', /netflix|spotify|disney|hbo|prime video|amazon prime|youtube|apple\.com|icloud|google (one|storage)|deezer|globoplay|paramount|chatgpt|openai|crunchyroll|max\.com|claude/],
-  ['Saúde', /drogaria|farmac|droga|raia|pacheco|panvel|pague menos|hospital|clinica|laborat|unimed|odonto|dentista/],
-  ['Seguro Carro', /bradesco auto|auto re\b|azul seguro|tokio marine auto|allianz auto/],
-  ['Manutenção do Carro', /posto|shell|ipiranga|petrobras|br mania|auto ?pe|oficina|pneu|bateria|estaciona|parking|rekpay|sem parar|veloe|conectcar|lava ?jato|detran/],
-  ['Vestuário', /renner|riachuelo|c&a|\bcea\b|zara|shein|hering|centauro|netshoes|marisa|youcom|calcado|sapat/],
-  ['Lazer', /cinema|cinemark|ingresso|sympla|steam|playstation|xbox|nintendo|show|teatro|parque/],
+// Cada regra: [categorias candidatas, em ordem de preferência] → palavra-chave.
+// Usa a primeira candidata que existir no app (ex.: "Supermercado"; se não houver, "Mercado").
+
+const SUPERMERCADO = ['Supermercado', 'Mercado'];
+const GASOLINA     = ['Gasolina', 'Combustível', 'Manutenção do Carro'];
+
+// Regras fixas: valem SEMPRE, inclusive sobre o histórico (pedido explícito da usuária)
+const REGRAS_FIXAS = [
+  // "mercado" sem pegar Mercado Livre / Mercado Pago (tratados em textoParaRegras)
+  [SUPERMERCADO, /supermer|mercado/],
+  [GASOLINA,     /\bposto\b|\bshell/],
 ];
 
-// Sugere categoria: 1) mesma descrição já usada antes; 2) palavra-chave (descrição
-// e categoria do banco); 3) "Outros" (ou a primeira categoria cadastrada)
+// Regras gerais: aplicadas depois do histórico da mesma loja
+const REGRAS = [
+  [SUPERMERCADO, /carrefour|assai|atacad|pao de acucar|hortifruti|sacolao|dia brasil|zaffari|savegnago|hiper|giassi|angeloni|cooper filial|bistek|komprao|condor|muffato|big ?bompreco|sonda|st marche/],
+  [GASOLINA,     /ipiranga|petrobras|br mania|combustiv|auto ?posto/],
+  [['Alimentação'], /ifood|\bifd\*|restaur|lanchon|padaria|panific|\bpao\b|confeit|doces|salgad|strudel|marmita|gastronom|burger|mc ?donald|pizza|rappi|cafe|sushi|churrasc|\bbk\b|subway|outback|coco bambu|aiqfome|99food|nonna|sorvet|acai|pastel/],
+  [['Assinaturas'], /netflix|spotify|disney|hbo|prime video|amazon prime|youtube|apple\.com|icloud|google (one|storage)|deezer|globoplay|paramount|chatgpt|openai|crunchyroll|max\.com|claude/],
+  [['Saúde'], /drogaria|farmac|droga|raia|pacheco|panvel|pague menos|hospital|clinica|laborat|unimed|odonto|dentista/],
+  [['Seguro Carro'], /bradesco auto|auto re\b|azul seguro|tokio marine auto|allianz auto/],
+  [['Conjunto/Casa', 'Outros'], /estaciona|parking|rekpay|parkhaus|zona azul/],
+  [['Manutenção do Carro'], /auto ?pe|oficina|pneu|bateria|sem parar|veloe|conectcar|lava ?jato|detran/],
+  [['Vestuário'], /renner|riachuelo|c&a|\bcea\b|zara|shein|hering|centauro|netshoes|marisa|youcom|calcado|sapat/],
+  [['Lazer'], /cinema|cinemark|ingresso|sympla|steam|playstation|xbox|nintendo|show|teatro|parque/],
+];
+
+// Texto normalizado para as regras. "Mercadolivre*Mercadol" / "Mercado Pago" são
+// marketplace/pagamento, não mercado: saem antes de testar.
+function textoParaRegras(linha) {
+  return semAcento(linha.desc + ' ' + (linha.catBanco || ''))
+    .replace(/mercado ?(livre|pago)\S*|\*mercadol\S*/g, ' ');
+}
+
+function aplicarRegras(regras, texto, nomes) {
+  for (const [candidatas, re] of regras) {
+    if (!re.test(texto)) continue;
+    for (const cand of candidatas) {
+      const existe = nomes.find(n => semAcento(n) === semAcento(cand));
+      if (existe) return existe;
+    }
+  }
+  return null;
+}
+
+// Sugere categoria: 1) regras fixas (supermercado, posto/shell); 2) mesma descrição
+// já usada antes; 3) demais palavras-chave (descrição e categoria do banco);
+// 4) "Outros" (ou a primeira categoria cadastrada)
 export function sugerirCategoria(linha, compras, categorias) {
   const nomes = categorias.map(c => c.name);
+  const texto = textoParaRegras(linha);
+
+  const fixa = aplicarRegras(REGRAS_FIXAS, texto, nomes);
+  if (fixa) return fixa;
+
   const norm = normalizarDesc(linha.desc);
   const anterior = compras.find(c => normalizarDesc(c.desc) === norm && nomes.includes(c.cat));
   if (anterior) return anterior.cat;
 
-  // "Mercadolivre*Mercadol" / "Mercado Pago" são marketplace/pagamento, não mercado
-  const texto = semAcento(linha.desc + ' ' + (linha.catBanco || '')).replace(/mercado ?(livre|pago)\S*|\*mercadol\S*/g, ' ');
-  for (const [cat, re] of REGRAS) {
-    const existe = nomes.find(n => semAcento(n) === semAcento(cat));
-    if (existe && re.test(texto)) return existe;
-  }
-  return nomes.find(n => semAcento(n) === 'outros') || nomes[0] || 'Outros';
+  return aplicarRegras(REGRAS, texto, nomes)
+    || nomes.find(n => semAcento(n) === 'outros') || nomes[0] || 'Outros';
+}
+
+// Sugestão para o formulário de nova compra (só quando há uma regra clara)
+export function categoriaPorNome(desc, compras, categorias) {
+  const nomes = categorias.map(c => c.name);
+  const texto = textoParaRegras({ desc });
+  const fixa = aplicarRegras(REGRAS_FIXAS, texto, nomes);
+  if (fixa) return fixa;
+  const norm = normalizarDesc(desc);
+  const anterior = norm.length >= 3 && compras.find(c => normalizarDesc(c.desc) === norm && nomes.includes(c.cat));
+  return anterior ? anterior.cat : aplicarRegras(REGRAS, texto, nomes);
 }
 
 // ---------- montagem ----------

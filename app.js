@@ -39,7 +39,7 @@ import {
   MONTHS, hojeISO, addMonths, getFatKey, fatKeyOf, getEndFatKey, parcelaNaFatura,
   fatLabel, fatLabelFull, faturasAtivas, comprasDaFatura, resumoPorCategoria, fmt, esc, arred,
 } from './js/fatura.js?v=8';
-import { decodificarArquivo, lerArquivo, prepararImportacao, sugerirFechamento } from './js/importar.js?v=8';
+import { decodificarArquivo, lerArquivo, prepararImportacao, sugerirFechamento, categoriaPorNome } from './js/importar.js?v=8';
 import { csvCompras, csvLancamentos } from './js/exportar.js?v=8';
 import { modeloGrafico, svgGrafico } from './js/grafico.js?v=8';
 
@@ -75,6 +75,7 @@ const S = {
   faturaAtiva: null,
   grafSel: null,     // fatura selecionada no gráfico
   imp: null,         // importação em andamento: { linhas, itens, ignorados, nome }
+  catEscolhidaForm: false,   // categoria do formulário escolhida à mão (para de sugerir)
 };
 
 const DEFAULT_CATEGORIAS = [
@@ -344,6 +345,8 @@ function openAddForm(compra) {
   $('f-parc').value           = compra?.parcelas || 1;
   $('f-tipo-val').value       = 'parcela';
   $('f-val').value            = compra?.valorParcela || '';
+  // Em compra nova, a categoria acompanha o nome digitado até ser escolhida à mão
+  S.catEscolhidaForm = !!compra;
   ACOES.updateValorHint();
 }
 
@@ -584,6 +587,12 @@ const ACOES = {
   },
 
   // --- formulário ---
+  sugerirCatForm(input) {
+    if (S.catEscolhidaForm) return;
+    const cat = categoriaPorNome(input.value, S.compras, S.categorias);
+    if (cat) $('f-cat').value = cat;
+  },
+  catEscolhidaForm() { S.catEscolhidaForm = true; },
   updateValorHint() {
     const hint = $('f-val-hint'), v = lerValorParcela();
     hint.textContent = !v ? '' : v.parcelas > 1
