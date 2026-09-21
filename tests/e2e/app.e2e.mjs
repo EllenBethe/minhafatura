@@ -76,7 +76,7 @@ test('abre na fatura aberta com compras, total e aviso de orçamento', async t =
 
 test('navega por todas as telas sem erro', async t => {
   const page = await abrir(t); if (!page) return;
-  for (const [acao, tela] of [['goGraf', 'scr-graf'], ['goSett', 'scr-sett'], ['goImport', 'scr-import'], ['goAdd', 'scr-form'], ['goHome', 'scr-home']]) {
+  for (const [acao, tela] of [['goGraf', 'scr-graf'], ['goMetas', 'scr-metas'], ['goSett', 'scr-sett'], ['goImport', 'scr-import'], ['goAdd', 'scr-form'], ['goHome', 'scr-home']]) {
     await page.evaluate(a => document.querySelector(`[data-action="${a}"]`).click(), acao);
     await page.waitForSelector(`#${tela}.active`);
   }
@@ -197,4 +197,36 @@ test('login: senha errada mostra erro; certa entra', async t => {
   await page.type('#l-pass', 'senha123');
   await clicar(page, 'doLogin');
   await page.waitForSelector('#scr-home.active .compra-card');
+});
+
+test('aba Metas: gap, total disponível, dias e valor por dia; meta aparece na fatura', async t => {
+  const { calcularMetas } = await import('../../js/metas.js');
+  const seed = { ...SEED, config: { ...SEED.config, metas: { teto: 1000 } } };
+  const page = await abrir(t, seed); if (!page) return;
+  // meta global na tela da fatura
+  await page.waitForSelector('#meta-fatura', { visible: true });
+  assert.match(await texto(page, '#meta-fatura'), /meta de R\$ 1\.000,00/);
+
+  await clicar(page, 'goMetas');
+  await page.waitForSelector('#scr-metas.active');
+  // gasto atual automático = total da fatura aberta (o mesmo número da home)
+  const gastoAuto = await page.evaluate(() => document.getElementById('m-gasto').placeholder);
+  assert.match(gastoAuto, /automático: [\d.,]+/);
+  const gasto = parseFloat(gastoAuto.replace(/[^\d,]/g, '').replace(',', '.'));
+
+  await page.type('#m-vrva', '250');
+  const esperado = calcularMetas({ teto: 1000, gasto, vrva: 250, fechamento: SEED.config.fechamento });
+  const fmt = v => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  await page.waitForFunction(v => document.querySelector('.mh-val').textContent.includes(v), {}, fmt(esperado.porDia));
+  const linhas = await texto(page, '#meta-linhas');
+  assert.ok(linhas.includes(fmt(esperado.disponivel)), 'total disponível');
+  assert.ok(linhas.includes(`${esperado.dias} dia`), 'dias até o fechamento');
+
+  // ao sair do campo, salva (com a data de atualização do VR/VA)
+  await page.$eval('#m-vrva', el => el.dispatchEvent(new Event('change', { bubbles: true })));
+  await page.waitForFunction(() => globalThis.__E2E.estado().config.metas?.vrva === 250);
+  const { metas } = (await estado(page)).config;
+  assert.equal(metas.teto, 1000);
+  assert.ok(metas.vrvaEm);
+  assert.equal(metas.gasto, undefined);   // gasto vazio = automático
 });
