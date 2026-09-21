@@ -383,6 +383,9 @@ function buildCatFilter() {
   sel.value = atual;
 }
 
+// Chamado pelo HTML (busca e filtro de categoria); módulos não expõem funções ao HTML sozinhos
+window.renderHome = () => renderHome();
+
 // Toque numa linha do resumo: filtra pela categoria (tocar de novo limpa)
 window.filtrarCat = function (nome) {
   const sel = document.getElementById('fil-cat');
