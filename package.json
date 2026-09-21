@@ -7,9 +7,13 @@
     "test": "node --test",
     "versao": "node scripts/versao.mjs",
     "serve": "npx serve .",
-    "deploy": "npx firebase-tools deploy --only hosting"
+    "deploy": "npx firebase-tools deploy --only hosting",
+    "e2e": "node --test --test-concurrency=1 tests/e2e/app.e2e.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.11.0"
   }
 }

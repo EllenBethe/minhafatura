@@ -20,7 +20,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm test
+      # Testes de tela: o app num Chrome sem janela, com o Firebase simulado
+      - run: npm run e2e
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
 
   publicar:
     needs: testes

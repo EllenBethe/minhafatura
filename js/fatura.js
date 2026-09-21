@@ -133,3 +133,14 @@ export function buscarCompras(compras, termo) {
   const total = arred(achadas.reduce((a, c) => a + c.valorParcela * c.parcelas, 0));
   return { achadas, total };
 }
+
+// Diferença de cada categoria (e do total) em relação à fatura anterior.
+// Retorna { cat: { anterior, dif, pct } } — pct = null quando a categoria não existia antes.
+export function compararComAnterior(atual, anterior) {
+  const r = {};
+  for (const cat of Object.keys(atual)) {
+    const antes = anterior[cat] || 0, dif = arred(atual[cat] - antes);
+    r[cat] = { anterior: antes, dif, pct: antes > 0 ? Math.round(dif / antes * 100) : null };
+  }
+  return r;
+}

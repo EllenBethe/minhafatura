@@ -19,8 +19,14 @@ Service workers e ES modules exigem HTTP (não abra via `file://`):
 
 ```bash
 npm run serve   # http://localhost:3000
-npm test        # testes (Node 20+, sem dependências)
+npm test        # testes da lógica (Node 20+, sem dependências)
+npm ci && npm run e2e   # testes de tela (precisa do Google Chrome; ou defina CHROME_PATH)
 ```
+
+Os testes de tela (`tests/e2e/`) abrem o app num Chrome sem janela com o Firebase
+simulado (`tests/e2e/firebase-simulado.js`) e usam como uma pessoa usaria: busca,
+filtros, lançar compra, estorno, troca de categoria, importar/desfazer e login.
+Rodam no GitHub Actions em todo PR — se falharem, nada é publicado.
 
 ## Estrutura
 
@@ -30,7 +36,9 @@ npm test        # testes (Node 20+, sem dependências)
 - `js/importar.js` — leitura de CSV (Nubank, Inter, C6, genérico) e OFX
 - `js/exportar.js` — planilhas CSV
 - `js/grafico.js` — gráfico de faturas por categoria
+- `js/icones.js` — ícones (Lucide, ISC) e cores das categorias
 - `tests/` — `node --test`; inclui checagem de que todo `data-action` existe em `ACOES`
+- `tests/e2e/` — testes de tela (puppeteer-core)
 
 ## Segurança
 

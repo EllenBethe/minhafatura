@@ -38,11 +38,11 @@ import {
 import {
   MONTHS, hojeISO, addMonths, getFatKey, fatKeyOf, getEndFatKey, parcelaNaFatura,
   fatLabel, fatLabelFull, faturasAtivas, comprasDaFatura, resumoPorCategoria, fmt, esc, arred,
-  casaBusca, buscarCompras,
+  casaBusca, buscarCompras, compararComAnterior,
 } from './js/fatura.js?v=8';
 import {
   decodificarArquivo, lerArquivo, prepararImportacao, sugerirFechamento, categoriaPorNome,
-  reclassificacoes, agruparImportacoes,
+  reclassificacoes, agruparImportacoes, textoParaRegra, regraDaUsuaria,
 } from './js/importar.js?v=8';
 import { csvCompras, csvLancamentos } from './js/exportar.js?v=8';
 import { modeloGrafico, svgGrafico } from './js/grafico.js?v=8';
@@ -86,6 +86,7 @@ const S = {
   iconeCat: null,            // índice da categoria com o seletor de ícone aberto
   regras: [],                // regras da usuária: [{ contem, cat }]
   buscaTodas: false,         // busca em todas as faturas (e não só na aberta na tela)
+  catRapida: null,           // id da compra com o seletor rápido de categoria aberto
 };
 
 const DEFAULT_CATEGORIAS = [
@@ -295,6 +296,11 @@ function renderHome() {
 
   // Resumo por categoria (sem filtros: mostra sempre a fatura inteira)
   const catMap  = resumoPorCategoria(compras);
+  // Comparação com a fatura anterior (só se ela teve lançamentos)
+  const keyAnt  = addMonths(fat, -1);
+  const mapAnt  = resumoPorCategoria(comprasDaFatura(S.compras, keyAnt, S.fechamento));
+  const temAnt  = Object.keys(mapAnt).length > 0;
+  const comp    = compararComAnterior(catMap, mapAnt);
   const catKeys = Object.keys(catMap).sort((a, b) => catMap[b] - catMap[a]);
   $('cat-resumo').innerHTML = catKeys.length === 0
     ? '<div class="cat-resumo-vazio">Sem lançamentos</div>'
@@ -308,12 +314,15 @@ function renderHome() {
           </span>` : '';
         return `<button type="button" class="cat-resumo-row ${k === filCat ? 'active' : ''}${orc ? ' com-orc' : ''}" data-action="filtrarCat"
           data-cat="${esc(k)}" aria-pressed="${k === filCat}">
-          <span class="cr-linha"><span>${chipDe(k, 'chip-resumo')}${esc(k)}</span><b>${reais(catMap[k])}</b></span>${barra}</button>`;
+          <span class="cr-linha"><span>${chipDe(k, 'chip-resumo')}${esc(k)}</span><span class="cr-val">${temAnt ? delta(comp[k], keyAnt) : ''}<b>${reais(catMap[k])}</b></span></span>${barra}</button>`;
       }).join('');
 
   const total = arred(Object.values(catMap).reduce((a, b) => a + b, 0));
   $('fat-total').textContent = reais(total);
-  $('fat-count').textContent = `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}`;
+  const totalAnt = arred(Object.values(mapAnt).reduce((a, b) => a + b, 0));
+  const difTotal = arred(total - totalAnt);
+  $('fat-count').textContent = `${compras.length} lançamento${compras.length !== 1 ? 's' : ''}` +
+    (temAnt && Math.abs(difTotal) >= 0.01 ? ` · ${difTotal > 0 ? '▲' : '▼'} ${reais(Math.abs(difTotal))} vs ${fatLabel(keyAnt).toLowerCase()}` : '');
 
   // Busca em todas as faturas: lista própria, com o valor total de cada compra
   $('busca-todas').setAttribute('aria-pressed', S.buscaTodas);
@@ -349,7 +358,7 @@ function cartaoCompra(c, parLabel, finLabel, pct) {
     return `<div class="compra-card${c.valorParcela < 0 ? ' estorno' : ''}">
       <div class="cc-top">
         <div class="cc-head">
-          ${chipDe(c.cat)}
+          <button type="button" class="chip-btn" data-action="trocarCatRapido" data-id="${esc(c.id)}" aria-label="Trocar categoria (${esc(c.cat)})">${chipDe(c.cat)}</button>
           <div class="cc-tit">
             <div class="cc-nome">${esc(c.desc)}</div>
             <div class="cc-cat">${esc(c.cat)}</div>
@@ -596,6 +605,7 @@ function renderImport() {
         <div class="imp-desc">${esc(it.desc)}</div>
         <div class="imp-meta">${it.dataArquivo.split('-').reverse().join('/')}${it.parcelas > 1 ? ` · parcela ${it.parcelaAtual}/${it.parcelas} · 1ª em ${fatLabel(it.inicio).toLowerCase()}` : ''}${it.estorno ? ' · <span class="imp-estorno">estorno</span>' : ''}${it.duplicada ? ' · <span class="imp-dup">parece já lançada</span>' : ''}</div>
         <select class="imp-cat" data-change="impCat" data-i="${i}" aria-label="Categoria">${opcoes(it.cat)}</select>
+        ${conviteRegra(it, i)}
       </div>
       <div class="imp-valor${it.estorno ? ' estorno' : ''}">${reais(it.valorParcela)}</div>
     </div>`).join('');
@@ -613,10 +623,12 @@ function recalcularImport() {
   });
   if (antes?.length === r.itens.length) {
     r.itens.forEach((it, i) => {
-      if (antes[i].catManual) { it.cat = antes[i].cat; it.catManual = true; }
+      it.catSugerida = it.cat;
+      if (antes[i].catManual) { it.cat = antes[i].cat; it.catManual = true; it.regraCriada = antes[i].regraCriada; }
       if (antes[i].incluirManual !== undefined && !it.duplicada) it.incluir = antes[i].incluirManual;
     });
   }
+  r.itens.forEach(it => { it.catSugerida ??= it.cat; });
   S.imp.itens = r.itens;
   S.imp.ignorados = r.ignorados;
   renderImport();
@@ -642,6 +654,40 @@ function renderSeletorIcone() {
     Object.entries(ICONES).map(([k, [rotulo]]) =>
       `<button type="button" class="ip-item${k === iconeAtual ? ' sel' : ''}" data-action="escolherIcone" data-key="${k}" aria-pressed="${k === iconeAtual}">
          ${chip(k, cor)}<span>${esc(rotulo)}</span></button>`).join('');
+}
+
+// "▲ 18%" / "▼ 25%" / "novo" em relação à fatura anterior
+function delta(c, keyAnt) {
+  if (!c) return '';
+  const quando = 'em relação a ' + fatLabel(keyAnt);
+  if (c.pct === null) return `<small class="delta" title="não teve em ${fatLabel(keyAnt)}">novo</small>`;
+  if (c.pct === 0) return '';
+  return `<small class="delta" title="${c.pct > 0 ? 'mais' : 'menos'} ${quando}">${c.pct > 0 ? '▲' : '▼'} ${Math.abs(c.pct)}%</small>`;
+}
+
+// Na prévia da importação: depois de trocar a categoria à mão, oferece criar a regra
+function conviteRegra(it, i) {
+  if (!it.catManual || it.cat === it.catSugerida) return '';
+  const contem = textoParaRegra(it.desc);
+  if (!contem) return '';
+  if (it.regraCriada) return `<div class="imp-regra ok">${svgUI('wand-sparkles')} Regra criada: “${esc(contem)}” → ${esc(it.cat)}</div>`;
+  if (S.regras.some(r => r.contem.toLowerCase() === contem && r.cat === it.cat)) return '';
+  return `<div class="imp-regra">Sempre colocar “${esc(contem)}” em ${esc(it.cat)}?
+    <button type="button" class="btn-sm" data-action="impCriarRegra" data-i="${i}">Criar regra</button></div>`;
+}
+
+// Seletor rápido de categoria (tocar no ícone de uma compra)
+function renderCatRapida() {
+  const c = S.compras.find(x => x.id === S.catRapida);
+  if (!c) return;
+  $('cp-tit').innerHTML = `<span>${esc(c.desc)}</span>`;
+  $('cp-lista').innerHTML = S.categorias.map(cat => `
+    <button type="button" class="cp-item${cat.name === c.cat ? ' sel' : ''}" data-action="escolherCatRapida" data-cat="${esc(cat.name)}" aria-pressed="${cat.name === c.cat}">
+      ${chipCategoria(cat)}<span>${esc(cat.name)}</span></button>`).join('');
+  const contem = textoParaRegra(c.desc);
+  $('cp-regra-linha').style.display = contem ? 'flex' : 'none';
+  $('cp-regra-txt').textContent = contem;
+  $('cp-regra').checked = false;
 }
 
 // ============================================================
@@ -886,6 +932,24 @@ const ACOES = {
     catch (e) { hideLoading(); alert('Erro ao desfazer: ' + e.message); }
   },
 
+  // --- troca rápida de categoria ---
+  trocarCatRapido(el) {
+    S.catRapida = el.dataset.id;
+    renderCatRapida();
+    $('cat-picker').style.display = 'flex';
+  },
+  async escolherCatRapida(el) {
+    const c = S.compras.find(x => x.id === S.catRapida), cat = el.dataset.cat;
+    $('cat-picker').style.display = 'none';
+    if (!c) return;
+    const criarRegra = $('cp-regra').checked && textoParaRegra(c.desc);
+    try {
+      if (cat !== c.cat) await gravar(updateDoc(doc(comprasRef(), c.id), { cat }));
+      if (criarRegra) { S.regras.push({ contem: criarRegra, cat }); await saveUserConfig(); }
+    } catch (e) { alert('Erro ao trocar a categoria: ' + e.message); }
+  },
+  fecharCatRapida() { $('cat-picker').style.display = 'none'; },
+
   // --- busca ---
   toggleBuscaTodas() { S.buscaTodas = !S.buscaTodas; renderHome(); },
 
@@ -933,6 +997,21 @@ const ACOES = {
   impCat(sel) {
     const it = S.imp.itens[+sel.dataset.i];
     it.cat = sel.value; it.catManual = true;
+    renderImport();          // mostra o convite para criar a regra
+  },
+  async impCriarRegra(el) {
+    const it = S.imp.itens[+el.dataset.i];
+    const contem = textoParaRegra(it.desc);
+    if (!contem) return;
+    S.regras.push({ contem, cat: it.cat });
+    it.regraCriada = true;
+    // aplica na hora às outras linhas da prévia que casam e não foram escolhidas à mão
+    const nomes = S.categorias.map(c => c.name);
+    S.imp.itens.forEach(o => {
+      if (o !== it && !o.catManual && regraDaUsuaria(o.desc, [{ contem, cat: it.cat }], nomes)) o.cat = it.cat;
+    });
+    renderImport();
+    await saveUserConfig();
   },
   async importConfirmar() {
     const marcados = S.imp.itens.filter(it => it.incluir);
