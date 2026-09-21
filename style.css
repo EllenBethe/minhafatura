@@ -703,16 +703,20 @@ input[type="file"].inp { padding: 9px; font-size: 14px; }
 
 /* ===== ÍCONES DAS CATEGORIAS ===== */
 .ic { width: 1em; height: 1em; flex-shrink: 0; display: block; }
+/* quadradinho colorido (cor da categoria em --cor) com ícone branco */
 .cat-chip {
   width: 36px; height: 36px; flex-shrink: 0;
-  border-radius: 11px;
-  background: var(--teal-bg);
-  color: var(--teal);
+  border-radius: 10px;
+  background: var(--cor, #0f9e94);
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0));
+  color: #fff;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .cat-chip .ic { width: 19px; height: 19px; }
-.cat-chip-btn { border: 0.5px solid var(--border); cursor: pointer; font-family: inherit; padding: 0; }
-.cat-chip-btn:active { transform: scale(0.94); }
+.chip-btn { background: none; border: none; padding: 0; cursor: pointer; border-radius: 10px; flex-shrink: 0; }
+.chip-btn:active { transform: scale(0.94); }
+.chip-grande { width: 44px; height: 44px; border-radius: 12px; }
+.chip-grande .ic { width: 23px; height: 23px; }
 
 /* cartão de compra: ícone + nome + categoria */
 .cc-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -722,8 +726,10 @@ input[type="file"].inp { padding: 9px; font-size: 14px; }
 .compra-card .cc-mid { margin-top: 10px; }
 
 /* resumo da fatura (fundo verde-água) */
-.cat-resumo-row span { display: inline-flex; align-items: center; gap: 7px; }
-.ic-resumo { width: 15px; height: 15px; color: #fff; opacity: 0.9; }
+.cat-resumo-row span { display: inline-flex; align-items: center; gap: 8px; }
+/* no fundo verde-água as cores se misturam: borda clara separa o quadradinho */
+.chip-resumo { width: 22px; height: 22px; border-radius: 6px; box-shadow: 0 0 0 1.5px rgba(255,255,255,0.55); }
+.chip-resumo .ic { width: 13px; height: 13px; }
 
 /* seletor de ícone */
 .sheet {
@@ -739,7 +745,15 @@ input[type="file"].inp { padding: 9px; font-size: 14px; }
   padding: 14px 16px calc(16px + var(--safe-bottom));
 }
 .sheet-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.sheet-tit { font-size: 16px; font-weight: 700; color: var(--white); }
+.sheet-tit { font-size: 16px; font-weight: 700; color: var(--white); display: flex; align-items: center; gap: 10px; }
+.ip-sec { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin: 12px 0 8px; font-weight: 600; }
+.ip-cores { display: flex; flex-wrap: wrap; gap: 10px; }
+.cor-item {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--cor); border: none; cursor: pointer;
+  color: #fff; font-family: inherit; font-size: 12px; font-weight: 800;
+}
+.cor-item.sel { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--white); }
 .ip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
 .ip-item {
   display: flex; flex-direction: column; align-items: center; gap: 5px;
@@ -748,4 +762,3 @@ input[type="file"].inp { padding: 9px; font-size: 14px; }
   font-size: 10.5px; color: var(--muted); text-align: center; line-height: 1.2;
 }
 .ip-item.sel { border-color: var(--teal); color: var(--white); }
-.ip-item.sel .cat-chip { background: var(--teal); color: #fff; }

@@ -42,7 +42,7 @@ import {
 import { decodificarArquivo, lerArquivo, prepararImportacao, sugerirFechamento, categoriaPorNome } from './js/importar.js?v=8';
 import { csvCompras, csvLancamentos } from './js/exportar.js?v=8';
 import { modeloGrafico, svgGrafico } from './js/grafico.js?v=8';
-import { ICONES, iconeDe, iconePorNome, svgIcone } from './js/icones.js?v=8';
+import { ICONES, CORES, iconeDe, iconePorNome, corDe, corDoIcone, chip, chipCategoria } from './js/icones.js?v=8';
 
 // ============================================================
 //  FIREBASE
@@ -96,8 +96,8 @@ const DEFAULT_CATEGORIAS = [
 
 const $ = id => document.getElementById(id);
 const faturaAberta = () => getFatKey(hojeISO(), S.fechamento);
-// Ícone SVG da categoria (escolhido em Config ou automático pelo nome)
-const icoDe = (nome, classe) => svgIcone(iconeDe(S.categorias.find(c => c.name === nome) || { name: nome }), classe);
+// Quadradinho colorido com o ícone da categoria (escolhidos em Config ou automáticos pelo nome)
+const chipDe = (nome, classe) => chipCategoria(S.categorias.find(c => c.name === nome) || { name: nome }, classe);
 const maiuscula = s => s.charAt(0).toUpperCase() + s.slice(1);
 
 // ============================================================
@@ -280,7 +280,7 @@ function renderHome() {
     ? '<div class="cat-resumo-vazio">Sem lançamentos</div>'
     : catKeys.map(k => `<button type="button" class="cat-resumo-row ${k === filCat ? 'active' : ''}" data-action="filtrarCat"
         data-cat="${esc(k)}" aria-pressed="${k === filCat}">
-        <span>${icoDe(k, 'ic ic-resumo')}${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></button>`).join('');
+        <span>${chipDe(k, 'chip-resumo')}${esc(k)}</span><b>R$ ${fmt(catMap[k])}</b></button>`).join('');
 
   const total = arred(Object.values(catMap).reduce((a, b) => a + b, 0));
   $('fat-total').textContent = `R$ ${fmt(total)}`;
@@ -310,7 +310,7 @@ function renderHome() {
     return `<div class="compra-card">
       <div class="cc-top">
         <div class="cc-head">
-          <span class="cat-chip">${icoDe(c.cat)}</span>
+          ${chipDe(c.cat)}
           <div class="cc-tit">
             <div class="cc-nome">${esc(c.desc)}</div>
             <div class="cc-cat">${esc(c.cat)}</div>
@@ -371,7 +371,7 @@ function lerValorParcela() {
 function buildCatList() {
   $('cat-list-s').innerHTML = S.categorias.map((c, i) => `
     <div class="resp-item">
-      <button type="button" class="cat-chip cat-chip-btn" data-action="abrirIcones" data-i="${i}" aria-label="Trocar ícone de ${esc(c.name)}">${svgIcone(iconeDe(c))}</button>
+      <button type="button" class="chip-btn" data-action="abrirIcones" data-i="${i}" aria-label="Trocar ícone e cor de ${esc(c.name)}">${chipCategoria(c)}</button>
       <input class="resp-name-inp" value="${esc(c.name)}" data-change="renameCat" data-i="${i}" aria-label="Nome da categoria" />
       <button type="button" class="btn-del" data-action="removeCat" data-i="${i}" aria-label="Remover categoria">✕</button>
     </div>`).join('');
@@ -519,6 +519,27 @@ function recalcularImport() {
   S.imp.itens = r.itens;
   S.imp.ignorados = r.ignorados;
   renderImport();
+}
+
+// Seletor de ícone e cor da categoria S.iconeCat
+function renderSeletorIcone() {
+  const cat = S.categorias[S.iconeCat];
+  const iconeAtual = cat.icone && ICONES[cat.icone] ? cat.icone : '';
+  const corAtual = cat.cor && CORES[cat.cor] ? cat.cor : '';
+  const cor = corDe(cat);
+  $('ip-tit').innerHTML = `${chipCategoria(cat, 'chip-grande')}<span>${esc(cat.name)}</span>`;
+  $('ip-cores').innerHTML =
+    `<button type="button" class="cor-item auto${corAtual ? '' : ' sel'}" data-action="escolherCor" data-cor=""
+       aria-pressed="${!corAtual}" aria-label="Cor automática" style="--cor:${CORES[corDoIcone(iconeDe(cat))][1]}">A</button>` +
+    Object.entries(CORES).map(([k, [nome, hex]]) =>
+      `<button type="button" class="cor-item${k === corAtual ? ' sel' : ''}" data-action="escolherCor" data-cor="${k}"
+         aria-pressed="${k === corAtual}" aria-label="${nome}" style="--cor:${hex}"></button>`).join('');
+  $('ip-grid').innerHTML =
+    `<button type="button" class="ip-item${iconeAtual ? '' : ' sel'}" data-action="escolherIcone" data-key="" aria-pressed="${!iconeAtual}">
+       ${chip(iconePorNome(cat.name), cor)}<span>Automático</span></button>` +
+    Object.entries(ICONES).map(([k, [rotulo]]) =>
+      `<button type="button" class="ip-item${k === iconeAtual ? ' sel' : ''}" data-action="escolherIcone" data-key="${k}" aria-pressed="${k === iconeAtual}">
+         ${chip(k, cor)}<span>${esc(rotulo)}</span></button>`).join('');
 }
 
 // ============================================================
@@ -681,26 +702,23 @@ const ACOES = {
     buildCatList(); buildCatSelect();
   },
 
-  // --- ícones das categorias ---
-  previewIconeNovo() { $('new-cat-ic').innerHTML = svgIcone(iconePorNome($('new-cat-n').value)); },
+  // --- ícones e cores das categorias ---
+  previewIconeNovo() { $('new-cat-ic').innerHTML = chipCategoria({ name: $('new-cat-n').value }); },
   abrirIcones(el) {
     S.iconeCat = +el.dataset.i;
-    const cat = S.categorias[S.iconeCat], atual = cat.icone && ICONES[cat.icone] ? cat.icone : '';
-    const auto = iconePorNome(cat.name);
-    $('ip-tit').textContent = 'Ícone de ' + cat.name;
-    $('ip-grid').innerHTML =
-      `<button type="button" class="ip-item${atual ? '' : ' sel'}" data-action="escolherIcone" data-key="" aria-pressed="${!atual}">
-         <span class="cat-chip">${svgIcone(auto)}</span><span>Automático</span></button>` +
-      Object.entries(ICONES).map(([k, [rotulo]]) =>
-        `<button type="button" class="ip-item${k === atual ? ' sel' : ''}" data-action="escolherIcone" data-key="${k}" aria-pressed="${k === atual}">
-           <span class="cat-chip">${svgIcone(k)}</span><span>${esc(rotulo)}</span></button>`).join('');
+    renderSeletorIcone();
     $('icon-picker').style.display = 'flex';
   },
   async escolherIcone(el) {
     const cat = S.categorias[S.iconeCat];
     if (el.dataset.key) cat.icone = el.dataset.key; else delete cat.icone;
-    $('icon-picker').style.display = 'none';
-    buildCatList();
+    renderSeletorIcone(); buildCatList();
+    await saveUserConfig();
+  },
+  async escolherCor(el) {
+    const cat = S.categorias[S.iconeCat];
+    if (el.dataset.cor) cat.cor = el.dataset.cor; else delete cat.cor;
+    renderSeletorIcone(); buildCatList();
     await saveUserConfig();
   },
   fecharIcones() { $('icon-picker').style.display = 'none'; },

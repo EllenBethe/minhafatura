@@ -137,3 +137,54 @@ export function svgIcone(chave, classe = 'ic') {
 
 // Todas as chaves usadas nas regras (para o teste garantir que existem em ICONES)
 export const CHAVES_DAS_REGRAS = REGRAS.map(([k]) => k);
+
+// ---------- cores ----------
+// Fundo do quadradinho (ícone branco por cima). Todas com contraste ≥ 3:1 contra o branco.
+export const CORES = {
+  verde:    ['Verde',    '#1e9e5a'],
+  lima:     ['Lima',     '#5a9216'],
+  teal:     ['Água',     '#0f9e94'],
+  ciano:    ['Ciano',    '#0e8fa3'],
+  azul:     ['Azul',     '#2f74d0'],
+  indigo:   ['Índigo',   '#5061d6'],
+  roxo:     ['Roxo',     '#7c5ce0'],
+  magenta:  ['Magenta',  '#b04fc4'],
+  rosa:     ['Rosa',     '#d9467f'],
+  vermelho: ['Vermelho', '#d94646'],
+  laranja:  ['Laranja',  '#d9622b'],
+  amarelo:  ['Amarelo',  '#c98500'],
+  marrom:   ['Marrom',   '#9a6634'],
+  ardosia:  ['Cinza',    '#5f6f86'],
+};
+
+// Cor automática de cada ícone (parecida com a cor que o emoji tinha)
+const COR_DO_ICONE = {
+  'shopping-cart': 'verde', 'store': 'verde', 'shopping-bag': 'magenta',
+  'fuel': 'laranja', 'car': 'ardosia', 'wrench': 'ardosia', 'shield-check': 'indigo', 'circle-parking': 'azul', 'bus': 'amarelo',
+  'house': 'azul', 'building-2': 'ciano', 'sofa': 'marrom', 'hammer': 'marrom', 'zap': 'amarelo', 'droplets': 'ciano',
+  'wifi': 'indigo', 'smartphone': 'ardosia', 'receipt': 'teal',
+  'utensils-crossed': 'vermelho', 'coffee': 'marrom', 'pizza': 'laranja', 'cake-slice': 'rosa', 'beer': 'amarelo',
+  'tv': 'roxo', 'gamepad-2': 'roxo', 'film': 'vermelho', 'music': 'magenta', 'ticket': 'rosa', 'plane': 'azul', 'hotel': 'indigo',
+  'heart-pulse': 'rosa', 'pill': 'vermelho', 'stethoscope': 'teal', 'sparkles': 'magenta', 'scissors': 'rosa', 'dumbbell': 'laranja',
+  'shirt': 'magenta', 'baby': 'ciano', 'toy-brick': 'amarelo', 'graduation-cap': 'indigo', 'book-open': 'marrom', 'paw-print': 'marrom',
+  'gift': 'vermelho', 'heart-handshake': 'rosa', 'user': 'azul', 'users': 'teal', 'briefcase': 'marrom',
+  'landmark': 'ardosia', 'banknote': 'verde', 'piggy-bank': 'rosa', 'tag': 'teal', 'package': 'ardosia',
+};
+
+export function corDoIcone(chave) {
+  return CORES[COR_DO_ICONE[chave]] ? COR_DO_ICONE[chave] : 'teal';
+}
+
+// Cor efetiva: escolhida à mão (cat.cor) ou a do ícone
+export function corDe(cat) {
+  return cat?.cor && CORES[cat.cor] ? cat.cor : corDoIcone(iconeDe(cat));
+}
+
+// Quadradinho colorido com o ícone branco
+export function chip(icone, cor, classe = '') {
+  return `<span class="cat-chip ${classe}" style="--cor:${(CORES[cor] || CORES.teal)[1]}">${svgIcone(icone)}</span>`;
+}
+
+export function chipCategoria(cat, classe = '') {
+  return chip(iconeDe(cat), corDe(cat), classe);
+}

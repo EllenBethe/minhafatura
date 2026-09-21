@@ -33,3 +33,26 @@ test('svgIcone gera um SVG de traço acessível (decorativo)', () => {
   assert.ok(svg.endsWith('</svg>'));
   assert.equal(svgIcone('nao-existe'), svgIcone('tag'));
 });
+
+test('cores: automática pelo ícone, manual respeitada, chave inválida ignorada', async () => {
+  const { CORES, corDe, corDoIcone, chipCategoria } = await import('../js/icones.js');
+  assert.equal(corDe({ name: 'Supermercado' }), 'verde');
+  assert.equal(corDe({ name: 'Gasolina' }), 'laranja');
+  assert.equal(corDe({ name: 'Ellen', icone: 'user' }), 'azul');
+  assert.equal(corDe({ name: 'Supermercado', cor: 'roxo' }), 'roxo');
+  assert.equal(corDe({ name: 'Supermercado', cor: 'nao-existe' }), 'verde');
+  for (const k of Object.keys(ICONES)) assert.ok(CORES[corDoIcone(k)], `ícone ${k} sem cor`);
+  assert.match(chipCategoria({ name: 'Gasolina' }), /style="--cor:#d9622b"/);
+});
+
+test('cores dos quadradinhos têm contraste ≥ 3:1 com o ícone branco', async () => {
+  const { CORES } = await import('../js/icones.js');
+  const lum = h => {
+    const c = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255)
+      .map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  for (const [k, [, hex]] of Object.entries(CORES)) {
+    assert.ok(1.05 / (lum(hex) + 0.05) >= 3, `${k} ${hex}`);
+  }
+});
