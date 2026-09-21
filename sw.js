@@ -1,6 +1,6 @@
 // A cada deploy: aumente VERSION aqui E o ?v= de app.js/style.css no index.html.
 // O ?v= garante que um HTML só carregue o JS/CSS da mesma versão.
-const VERSION = 6;
+const VERSION = 7;
 const CACHE = 'minhafatura-v' + VERSION;
 // Recursos externos com URL versionada/imutável: cache-first
 const CDN_PREFIXES = [
