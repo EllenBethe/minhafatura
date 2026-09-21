@@ -212,7 +212,14 @@ test('regras fixas: supermercado/mercado → Supermercado; posto/shell → Gasol
   assert.equal(cat('Auto Posto Bela Joia L'), 'Gasolina');
   assert.equal(cat('Ec *Shellbox'), 'Gasolina');
   assert.equal(cat('Michelle Cabeleireira'), 'Outros');       // "shell" no meio da palavra não conta
-  assert.equal(cat('Rek Parking *Rekpay'), 'Manutenção do Carro');
+  assert.equal(cat('Baterblu Baterias'), 'Manutenção do Carro');
+});
+
+test('estacionamento → Conjunto/Casa, ou Outros se não existir', () => {
+  const comCasa = ['Conjunto/Casa', 'Manutenção do Carro', 'Outros'].map(name => ({ name, emoji: '' }));
+  assert.equal(sugerirCategoria({ desc: 'Rek Parking *Rekpay' }, [], comCasa), 'Conjunto/Casa');
+  assert.equal(sugerirCategoria({ desc: 'Parkhaus Estacionament' }, [], comCasa), 'Conjunto/Casa');
+  assert.equal(sugerirCategoria({ desc: 'Parkhaus Estacionament' }, [], CATEGORIAS), 'Outros');
 });
 
 test('regras fixas caem na próxima candidata se a categoria não existir', () => {

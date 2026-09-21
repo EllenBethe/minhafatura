@@ -167,7 +167,8 @@ const REGRAS = [
   [['Assinaturas'], /netflix|spotify|disney|hbo|prime video|amazon prime|youtube|apple\.com|icloud|google (one|storage)|deezer|globoplay|paramount|chatgpt|openai|crunchyroll|max\.com|claude/],
   [['Saúde'], /drogaria|farmac|droga|raia|pacheco|panvel|pague menos|hospital|clinica|laborat|unimed|odonto|dentista/],
   [['Seguro Carro'], /bradesco auto|auto re\b|azul seguro|tokio marine auto|allianz auto/],
-  [['Manutenção do Carro'], /auto ?pe|oficina|pneu|bateria|estaciona|parking|rekpay|sem parar|veloe|conectcar|lava ?jato|detran/],
+  [['Conjunto/Casa', 'Outros'], /estaciona|parking|rekpay|parkhaus|zona azul/],
+  [['Manutenção do Carro'], /auto ?pe|oficina|pneu|bateria|sem parar|veloe|conectcar|lava ?jato|detran/],
   [['Vestuário'], /renner|riachuelo|c&a|\bcea\b|zara|shein|hering|centauro|netshoes|marisa|youcom|calcado|sapat/],
   [['Lazer'], /cinema|cinemark|ingresso|sympla|steam|playstation|xbox|nintendo|show|teatro|parque/],
 ];
