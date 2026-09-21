@@ -138,9 +138,14 @@ export function lerOFX(texto) {
 export function lerArquivo(texto, nome = '') {
   const ehOFX = /\.ofx$/i.test(nome) || /<OFX>|<STMTTRN>/i.test(texto);
   const linhas = ehOFX ? lerOFX(texto) : lerCSV(texto);
-  // Extratos de cartão em OFX (e alguns CSV) trazem compras como negativas: inverte
-  const negativos = linhas.filter(l => l.valor < 0).length;
-  if (negativos > linhas.length / 2) linhas.forEach(l => { l.valor = -l.valor; });
+  // Extratos de cartão em OFX (e alguns CSV) trazem compras como negativas: inverte.
+  // O pagamento da fatura sempre tem o sinal oposto ao das compras, então decide por ele;
+  // sem pagamento no arquivo, decide pela maioria.
+  const pagamentos = linhas.filter(l => ehPagamento(l.desc));
+  const inverter = pagamentos.length
+    ? pagamentos.filter(l => l.valor > 0).length > pagamentos.length / 2
+    : linhas.filter(l => l.valor < 0).length > linhas.length / 2;
+  if (inverter) linhas.forEach(l => { l.valor = -l.valor; });
   return linhas;
 }
 
@@ -191,13 +196,25 @@ function aplicarRegras(regras, texto, nomes) {
   return null;
 }
 
-// Sugere categoria: 1) regras fixas (supermercado, posto/shell); 2) mesma descrição
-// já usada antes; 3) demais palavras-chave (descrição e categoria do banco);
-// 4) "Outros" (ou a primeira categoria cadastrada)
-export function sugerirCategoria(linha, compras, categorias) {
-  const nomes = categorias.map(c => c.name);
-  const texto = textoParaRegras(linha);
+// ---------- regras da usuária ("nome contém X → categoria Y") ----------
 
+// regras = [{ contem: 'shopee', cat: 'Compras' }, ...] — valem acima de tudo
+export function regraDaUsuaria(desc, regras = [], nomes) {
+  const texto = semAcento(desc);
+  const r = regras.find(r => r?.contem && semAcento(r.contem).trim() && texto.includes(semAcento(r.contem).trim())
+    && (!nomes || nomes.includes(r.cat)));
+  return r ? r.cat : null;
+}
+
+// Sugere categoria: 1) regras da usuária; 2) regras fixas (supermercado, posto/shell);
+// 3) mesma descrição já usada antes; 4) demais palavras-chave (descrição e categoria
+// do banco); 5) "Outros" (ou a primeira categoria cadastrada)
+export function sugerirCategoria(linha, compras, categorias, regras = []) {
+  const nomes = categorias.map(c => c.name);
+  const daUsuaria = regraDaUsuaria(linha.desc, regras, nomes);
+  if (daUsuaria) return daUsuaria;
+
+  const texto = textoParaRegras(linha);
   const fixa = aplicarRegras(REGRAS_FIXAS, texto, nomes);
   if (fixa) return fixa;
 
@@ -210,8 +227,10 @@ export function sugerirCategoria(linha, compras, categorias) {
 }
 
 // Sugestão para o formulário de nova compra (só quando há uma regra clara)
-export function categoriaPorNome(desc, compras, categorias) {
+export function categoriaPorNome(desc, compras, categorias, regras = []) {
   const nomes = categorias.map(c => c.name);
+  const daUsuaria = regraDaUsuaria(desc, regras, nomes);
+  if (daUsuaria) return daUsuaria;
   const texto = textoParaRegras({ desc });
   const fixa = aplicarRegras(REGRAS_FIXAS, texto, nomes);
   if (fixa) return fixa;
@@ -220,21 +239,37 @@ export function categoriaPorNome(desc, compras, categorias) {
   return anterior ? anterior.cat : aplicarRegras(REGRAS, texto, nomes);
 }
 
+// Compras já no app que mudariam de categoria pelas regras da usuária e pelas fixas
+// (as palavras-chave gerais NÃO entram, para não mexer no que foi escolhido à mão)
+export function reclassificacoes(compras, categorias, regras = []) {
+  const nomes = categorias.map(c => c.name);
+  return compras.map(c => {
+    const nova = regraDaUsuaria(c.desc, regras, nomes) || aplicarRegras(REGRAS_FIXAS, textoParaRegras(c), nomes);
+    return nova && nova !== c.cat ? { id: c.id, desc: c.desc, de: c.cat, para: nova } : null;
+  }).filter(Boolean);
+}
+
 // ---------- montagem ----------
+
+// Pagamento da fatura (ignorado) × estorno/crédito (entra negativo e abate a fatura)
+export function ehPagamento(desc) {
+  return /pagamento|pagto|pgto|payment|pag.? fatura|pagamento recebido/.test(semAcento(desc));
+}
 
 // Transforma as linhas lidas em compras para a fatura `faturaAlvo`.
 // - Parcela k/N: vira compra de N parcelas cuja k-ésima cai na fatura alvo
 // - Data real mantida quando ela já cai na fatura certa; senão ajustada
-// - Valores ≤ 0 (pagamento, estorno, crédito) ficam de fora
+// - Pagamentos ficam de fora; estornos/créditos entram com valor negativo
 // - Já lançadas no app vêm desmarcadas (ver acharExistente)
-export function prepararImportacao(linhas, { faturaAlvo, fechamento, compras = [], categorias = [] }) {
+export function prepararImportacao(linhas, { faturaAlvo, fechamento, compras = [], categorias = [], regras = [] }) {
   const livres = [...compras];   // cada compra do app "casa" com no máximo uma linha do arquivo
 
   const itens = [], ignorados = [];
   for (const l of linhas) {
-    if (!(l.valor > 0)) { ignorados.push(l); continue; }
-    const parcelas = l.parcela?.total || 1;
-    const k = l.parcela?.atual || 1;
+    if (!l.valor || (l.valor < 0 && ehPagamento(l.desc))) { ignorados.push(l); continue; }
+    const estorno = l.valor < 0;
+    const parcelas = estorno ? 1 : (l.parcela?.total || 1);
+    const k = estorno ? 1 : (l.parcela?.atual || 1);
     const inicio = addMonths(faturaAlvo, -(k - 1));
     const data = getFatKey(l.data, fechamento) === inicio ? l.data : dataParaFatura(inicio, fechamento);
     const desc = limparDesc(l.desc);
@@ -242,13 +277,30 @@ export function prepararImportacao(linhas, { faturaAlvo, fechamento, compras = [
     const iExistente = acharExistente(livres, { desc, dataArquivo: l.data, parcelas, valorParcela, inicio }, fechamento);
     const duplicada = iExistente >= 0;
     if (duplicada) livres.splice(iExistente, 1);
+    // estorno herda a categoria da loja ("Estorno Renner" → a categoria da Renner)
+    const linhaCat = estorno ? { ...l, desc: l.desc.replace(/^s*(estorno|credito|crédito|reembolso)( de)?s*/i, '') } : l;
     itens.push({
-      desc, data, dataArquivo: l.data, inicio, parcelas, valorParcela, parcelaAtual: k,
-      cat: sugerirCategoria(l, compras, categorias),
+      desc, data, dataArquivo: l.data, inicio, parcelas, valorParcela, parcelaAtual: k, estorno,
+      cat: sugerirCategoria(linhaCat, compras, categorias, regras),
       duplicada, incluir: !duplicada,
     });
   }
   return { itens, ignorados };
+}
+
+// Importações feitas (para poder desfazer): agrupa por importId.
+// Compras importadas antes desse controle (só origem: 'importacao') ficam num grupo à parte.
+export function agruparImportacoes(compras) {
+  const grupos = new Map();
+  for (const c of compras) {
+    if (c.origem !== 'importacao') continue;
+    const id = c.importId || '';
+    const g = grupos.get(id) || { id, quando: c.importadoEm || '', arquivo: c.importArquivo || '', ids: [], total: 0 };
+    g.ids.push(c.id);
+    g.total = arred(g.total + c.valorParcela);
+    grupos.set(id, g);
+  }
+  return [...grupos.values()].sort((a, b) => (b.quando || '').localeCompare(a.quando || ''));
 }
 
 const diasEntre = (a, b) => Math.abs((new Date(a) - new Date(b)) / 86400000);

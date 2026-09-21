@@ -79,7 +79,11 @@
       </select>
     </div>
     <div class="search-row">
-      <input class="search-inp" id="search" placeholder="🔍  Buscar por nome..." data-input="renderHome" aria-label="Buscar" />
+      <div class="search-box">
+        <span class="search-ic" data-ico="search" aria-hidden="true"></span>
+        <input class="search-inp" id="search" placeholder="Buscar por nome ou categoria" data-input="renderHome" aria-label="Buscar" />
+      </div>
+      <button type="button" class="busca-todas" id="busca-todas" data-action="toggleBuscaTodas" aria-pressed="false">Todas as faturas</button>
     </div>
 
     <div class="sec-title" id="sec-title">compras da fatura</div>
@@ -89,7 +93,7 @@
   <!-- ===== FORM ===== -->
   <div id="scr-form" class="screen">
     <div class="topbar">
-      <button type="button" class="back-btn" data-action="goHome" aria-label="Voltar">←</button>
+      <button type="button" class="back-btn" data-action="goHome" aria-label="Voltar" data-ico="chevron-left"></button>
       <div class="topbar-logo" id="form-title">Nova compra</div>
       <div style="width:34px;"></div>
     </div>
@@ -123,6 +127,7 @@
           <label class="lbl" for="f-val">Valor (R$)</label>
           <input class="inp" type="number" id="f-val" placeholder="0,00" step="0.01" min="0" inputmode="decimal" data-input="updateValorHint" />
         </div>
+        <label class="chk full"><input type="checkbox" id="f-estorno" data-change="updateValorHint" /> É estorno ou crédito (abate da fatura)</label>
         <div class="valor-hint full" id="f-val-hint"></div>
       </div>
       <div id="form-error" class="error-msg" style="display:none;"></div>
@@ -154,7 +159,7 @@
   <!-- ===== SETTINGS ===== -->
   <div id="scr-sett" class="screen">
     <div class="topbar">
-      <button type="button" class="back-btn" data-action="goHome" aria-label="Voltar">←</button>
+      <button type="button" class="back-btn" data-action="goHome" aria-label="Voltar" data-ico="chevron-left"></button>
       <div class="topbar-logo">Configurações</div>
       <div style="width:34px;"></div>
     </div>
@@ -174,18 +179,34 @@
 
     <div class="sett-card">
       <h3>Importar e exportar</h3>
-      <button type="button" class="btn-outline btn-slim" data-action="goImport">📥 Importar fatura do banco (CSV/OFX)</button>
-      <button type="button" class="btn-outline btn-slim" data-action="exportCompras">📤 Exportar compras (planilha)</button>
-      <button type="button" class="btn-outline btn-slim" data-action="exportLancamentos">📤 Exportar lançamentos por fatura</button>
+      <button type="button" class="btn-outline btn-slim btn-ic" data-action="goImport"><span data-ico="download"></span>Importar fatura do banco (CSV/OFX)</button>
+      <button type="button" class="btn-outline btn-slim btn-ic" data-action="exportCompras"><span data-ico="file-spreadsheet"></span>Exportar compras (planilha)</button>
+      <button type="button" class="btn-outline btn-slim btn-ic" data-action="exportLancamentos"><span data-ico="upload"></span>Exportar lançamentos por fatura</button>
+      <div class="ip-sec">Importações feitas</div>
+      <div id="imp-hist"></div>
+    </div>
+
+    <div class="sett-card">
+      <h3>Regras de categoria</h3>
+      <p class="graf-nota" style="margin:0 0 10px">Quando o nome da compra tiver o texto, ela vai para a categoria — na importação e ao lançar à mão.</p>
+      <div id="regras-lista"></div>
+      <div class="regra-item regra-nova">
+        <input class="inp regra-inp" id="regra-nova-txt" placeholder="nome contém…" aria-label="Texto da nova regra" />
+        <span class="regra-seta" aria-hidden="true">→</span>
+        <select class="inp regra-cat" id="regra-nova-cat" aria-label="Categoria da nova regra"></select>
+        <button type="button" class="btn-sm" data-action="addRegra" aria-label="Adicionar regra" data-ico="plus"></button>
+      </div>
+      <button type="button" class="btn-outline btn-slim btn-ic" style="margin-top:10px" data-action="aplicarRegras"><span data-ico="wand-sparkles"></span>Aplicar às compras que já estão no app</button>
     </div>
 
     <div class="sett-card">
       <h3>Categorias</h3>
+      <p class="graf-nota" style="margin:0 0 8px">Toque no ícone para trocar ícone, cor e orçamento mensal.</p>
       <div id="cat-list-s"></div>
       <div class="add-row">
         <span class="cat-chip" id="new-cat-ic" aria-hidden="true"></span>
         <input class="inp" id="new-cat-n" placeholder="Nome da categoria" style="flex:1;" aria-label="Nome da nova categoria" data-input="previewIconeNovo" />
-        <button type="button" class="btn-sm" data-action="addCat" aria-label="Adicionar categoria">+</button>
+        <button type="button" class="btn-sm" data-action="addCat" aria-label="Adicionar categoria" data-ico="plus"></button>
       </div>
     </div>
   </div>
@@ -193,7 +214,7 @@
   <!-- ===== IMPORTAR ===== -->
   <div id="scr-import" class="screen">
     <div class="topbar">
-      <button type="button" class="back-btn" data-action="goSett" aria-label="Voltar">←</button>
+      <button type="button" class="back-btn" data-action="goSett" aria-label="Voltar" data-ico="chevron-left"></button>
       <div class="topbar-logo">Importar fatura</div>
       <div style="width:34px;"></div>
     </div>
@@ -222,19 +243,19 @@
 <!-- BOTTOM NAV -->
 <nav id="bnav" class="bottom-nav" style="display:none;" aria-label="Navegação principal">
   <button type="button" class="nav-btn active" id="nb-home" data-action="goHome">
-    <span class="nav-ic" aria-hidden="true">💳</span>
+    <span class="nav-ic" data-ico="credit-card" aria-hidden="true"></span>
     <span class="nav-lbl">Fatura</span>
   </button>
   <button type="button" class="nav-btn" id="nb-add" data-action="goAdd">
-    <span class="nav-ic" aria-hidden="true">➕</span>
+    <span class="nav-ic" data-ico="circle-plus" aria-hidden="true"></span>
     <span class="nav-lbl">Adicionar</span>
   </button>
   <button type="button" class="nav-btn" id="nb-graf" data-action="goGraf">
-    <span class="nav-ic" aria-hidden="true">📊</span>
+    <span class="nav-ic" data-ico="chart-column" aria-hidden="true"></span>
     <span class="nav-lbl">Gráficos</span>
   </button>
   <button type="button" class="nav-btn" id="nb-sett" data-action="goSett">
-    <span class="nav-ic" aria-hidden="true">⚙️</span>
+    <span class="nav-ic" data-ico="settings" aria-hidden="true"></span>
     <span class="nav-lbl">Config</span>
   </button>
 </nav>
@@ -244,7 +265,12 @@
   <div class="sheet-box" role="dialog" aria-modal="true" aria-labelledby="ip-tit" data-action="nada">
     <div class="sheet-top">
       <div class="sheet-tit" id="ip-tit"></div>
-      <button type="button" class="back-btn" data-action="fecharIcones" aria-label="Fechar">✕</button>
+      <button type="button" class="back-btn" data-action="fecharIcones" aria-label="Fechar" data-ico="x"></button>
+    </div>
+    <div class="ip-sec">Orçamento mensal</div>
+    <div class="orc-row">
+      <span>R$</span>
+      <input class="inp" type="number" id="ip-orc" min="0" step="0.01" inputmode="decimal" placeholder="Sem limite" data-change="salvarOrcamento" aria-label="Orçamento mensal" />
     </div>
     <div class="ip-sec">Cor</div>
     <div class="ip-cores" id="ip-cores"></div>

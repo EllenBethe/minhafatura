@@ -32,9 +32,11 @@ export function modeloGrafico(compras, fechamento, aberta, { antes = 5, depois =
   const principais = ordem.filter(c => c.toLowerCase() !== 'outros').slice(0, MAX_SERIES);
   const resto = ordem.filter(c => !principais.includes(c));
 
-  const series = principais.map((nome, i) => ({ nome, cor: CORES[i], valores: porCat[nome].map(arred) }));
+  // Estornos podem deixar uma categoria negativa num mês: a barra não desenha abaixo de zero
+  const pos = v => Math.max(0, arred(v));
+  const series = principais.map((nome, i) => ({ nome, cor: CORES[i], valores: porCat[nome].map(pos) }));
   if (resto.length) {
-    const valores = keys.map((_, i) => arred(resto.reduce((a, c) => a + porCat[c][i], 0)));
+    const valores = keys.map((_, i) => pos(resto.reduce((a, c) => a + porCat[c][i], 0)));
     series.push({ nome: 'Outros', cor: COR_OUTROS, valores, agrupa: resto });
   }
   const totais = keys.map((_, i) => arred(series.reduce((a, s) => a + s.valores[i], 0)));

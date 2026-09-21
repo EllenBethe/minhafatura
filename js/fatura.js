@@ -117,3 +117,19 @@ export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, ch =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
+
+const semAcento = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+// Busca por nome ou categoria, sem diferenciar acento/maiúscula ("farmacia" acha "Farmácia")
+export function casaBusca(c, termo) {
+  const t = semAcento(termo).trim();
+  return !t || semAcento(c.desc).includes(t) || semAcento(c.cat).includes(t);
+}
+
+// Busca em todas as faturas: compras mais recentes primeiro, com o total de todas as parcelas
+export function buscarCompras(compras, termo) {
+  const achadas = compras.filter(c => casaBusca(c, termo))
+    .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  const total = arred(achadas.reduce((a, c) => a + c.valorParcela * c.parcelas, 0));
+  return { achadas, total };
+}
