@@ -39,7 +39,7 @@ import {
   MONTHS, hojeISO, addMonths, getFatKey, fatKeyOf, getEndFatKey, parcelaNaFatura,
   fatLabel, fatLabelFull, faturasAtivas, comprasDaFatura, resumoPorCategoria, fmt, esc, arred,
 } from './js/fatura.js?v=8';
-import { decodificarArquivo, lerArquivo, prepararImportacao } from './js/importar.js?v=8';
+import { decodificarArquivo, lerArquivo, prepararImportacao, sugerirFechamento } from './js/importar.js?v=8';
 import { csvCompras, csvLancamentos } from './js/exportar.js?v=8';
 import { modeloGrafico, svgGrafico } from './js/grafico.js?v=8';
 
@@ -463,8 +463,17 @@ function renderImport() {
   const marcados = itens.filter(it => it.incluir);
   const dup = itens.filter(it => it.duplicada).length;
   const soma = marcados.reduce((a, it) => a + it.valorParcela, 0);
-  resumo.innerHTML = `<b>${itens.length}</b> compra(s) no arquivo` +
-    (dup ? ` · <b>${dup}</b> já existe(m) no app (desmarcada)` : '') +
+  // Compras à vista do arquivo que, pelo dia de fechamento configurado, cairiam em outra fatura
+  const alvo = sel.value;
+  const foraDaFatura = S.imp.linhas.filter(l => l.valor > 0 && !l.parcela && getFatKey(l.data, S.fechamento) !== alvo).length;
+  const sugerido = sugerirFechamento(S.imp.linhas);
+  const aviso = foraDaFatura && sugerido && sugerido !== S.fechamento
+    ? `<div class="imp-aviso">⚠️ Pelas datas do arquivo, sua fatura parece fechar no <b>dia ${sugerido}</b>, mas o app está
+        configurado para o <b>dia ${S.fechamento}</b>. ${foraDaFatura} compra(s) teriam a data ajustada para caber nesta fatura.
+        <button type="button" class="btn-outline btn-slim" data-action="impUsarFechamento" data-dia="${sugerido}">Usar dia ${sugerido} como fechamento</button></div>`
+    : '';
+  resumo.innerHTML = aviso + `<b>${itens.length}</b> compra(s) no arquivo` +
+    (dup ? ` · <b>${dup}</b> parece(m) já lançada(s) no app (desmarcada)` : '') +
     (ignorados.length ? ` · <b>${ignorados.length}</b> pagamento(s)/crédito(s) ignorado(s)` : '') +
     `<br>Selecionadas: <b>${marcados.length}</b> · R$ ${fmt(soma)} nesta fatura`;
 
@@ -475,7 +484,7 @@ function renderImport() {
       <label class="imp-check"><input type="checkbox" ${it.incluir ? 'checked' : ''} data-change="impToggle" data-i="${i}" aria-label="Importar ${esc(it.desc)}" /></label>
       <div class="imp-info">
         <div class="imp-desc">${esc(it.desc)}</div>
-        <div class="imp-meta">${it.dataArquivo.split('-').reverse().join('/')}${it.parcelas > 1 ? ` · parcela ${it.parcelaAtual}/${it.parcelas} · 1ª em ${fatLabel(it.inicio).toLowerCase()}` : ''}${it.duplicada ? ' · <span class="imp-dup">já existe</span>' : ''}</div>
+        <div class="imp-meta">${it.dataArquivo.split('-').reverse().join('/')}${it.parcelas > 1 ? ` · parcela ${it.parcelaAtual}/${it.parcelas} · 1ª em ${fatLabel(it.inicio).toLowerCase()}` : ''}${it.duplicada ? ' · <span class="imp-dup">parece já lançada</span>' : ''}</div>
         <select class="imp-cat" data-change="impCat" data-i="${i}" aria-label="Categoria">${opcoes(it.cat)}</select>
       </div>
       <div class="imp-valor">R$ ${fmt(it.valorParcela)}</div>
@@ -682,6 +691,15 @@ const ACOES = {
     }
   },
   importRecalc() { recalcularImport(); },
+  async impUsarFechamento(el) {
+    const dia = +el.dataset.dia;
+    if (!confirm(`Mudar o dia de fechamento de ${S.fechamento} para ${dia}? Isso reposiciona todas as compras do app.`)) return;
+    S.fechamento = dia;
+    await saveUserConfig();
+    $('imp-fatura').value = '';
+    renderImport();          // recalcula a fatura provável com o novo dia
+    recalcularImport();
+  },
   impToggle(input) {
     const it = S.imp.itens[+input.dataset.i];
     it.incluir = it.incluirManual = input.checked;

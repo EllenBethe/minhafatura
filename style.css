@@ -691,3 +691,13 @@ details summary { font-size: 13px; color: var(--teal); cursor: pointer; font-wei
 }
 .imp-valor { font-size: 14px; font-weight: 700; color: var(--teal); white-space: nowrap; }
 input[type="file"].inp { padding: 9px; font-size: 14px; }
+.imp-aviso {
+  background: rgba(201,133,0,0.12);
+  border: 0.5px solid rgba(201,133,0,0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.imp-aviso .btn-slim { margin-top: 8px; }

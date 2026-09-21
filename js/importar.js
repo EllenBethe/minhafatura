@@ -148,11 +148,13 @@ export function lerArquivo(texto, nome = '') {
 
 // Palavra-chave → nome de categoria padrão (usado só se a categoria existir)
 const REGRAS = [
-  ['Mercado', /mercado|supermerc|carrefour|assai|atacad|pao de acucar|hortifruti|sacolao|dia brasil|zaffari|savegnago|hiper/],
-  ['Alimentação', /ifood|restaur|lanchon|padaria|burger|mc ?donald|pizza|rappi|cafe|sushi|churrasc|bk |subway|outback|coco bambu|aiqfome|99food/],
+  // "mercado" sem pegar Mercado Livre / Mercado Pago
+  ['Mercado', /supermer|(?<!super)mercado(?! ?livre| ?pago)|carrefour|assai|atacad|pao de acucar|hortifruti|sacolao|dia brasil|zaffari|savegnago|hiper|giassi|angeloni|cooper filial|bistek|komprao|fort atacadista|condor|muffato|big ?bompreco|sonda|st marche/],
+  ['Alimentação', /ifood|\bifd\*|restaur|lanchon|padaria|panific|\bpao\b|confeit|doces|salgad|strudel|marmita|gastronom|burger|mc ?donald|pizza|rappi|cafe|sushi|churrasc|\bbk\b|subway|outback|coco bambu|aiqfome|99food|nonna|sorvet|acai|pastel/],
   ['Assinaturas', /netflix|spotify|disney|hbo|prime video|amazon prime|youtube|apple\.com|icloud|google (one|storage)|deezer|globoplay|paramount|chatgpt|openai|crunchyroll|max\.com|claude/],
   ['Saúde', /drogaria|farmac|droga|raia|pacheco|panvel|pague menos|hospital|clinica|laborat|unimed|odonto|dentista/],
-  ['Manutenção do Carro', /posto|shell|ipiranga|petrobras|br mania|auto ?pe|oficina|pneu|estaciona|sem parar|veloe|conectcar|lava ?jato|detran/],
+  ['Seguro Carro', /bradesco auto|auto re\b|azul seguro|tokio marine auto|allianz auto/],
+  ['Manutenção do Carro', /posto|shell|ipiranga|petrobras|br mania|auto ?pe|oficina|pneu|bateria|estaciona|parking|rekpay|sem parar|veloe|conectcar|lava ?jato|detran/],
   ['Vestuário', /renner|riachuelo|c&a|\bcea\b|zara|shein|hering|centauro|netshoes|marisa|youcom|calcado|sapat/],
   ['Lazer', /cinema|cinemark|ingresso|sympla|steam|playstation|xbox|nintendo|show|teatro|parque/],
 ];
@@ -165,7 +167,8 @@ export function sugerirCategoria(linha, compras, categorias) {
   const anterior = compras.find(c => normalizarDesc(c.desc) === norm && nomes.includes(c.cat));
   if (anterior) return anterior.cat;
 
-  const texto = semAcento(linha.desc + ' ' + (linha.catBanco || ''));
+  // "Mercadolivre*Mercadol" / "Mercado Pago" são marketplace/pagamento, não mercado
+  const texto = semAcento(linha.desc + ' ' + (linha.catBanco || '')).replace(/mercado ?(livre|pago)\S*|\*mercadol\S*/g, ' ');
   for (const [cat, re] of REGRAS) {
     const existe = nomes.find(n => semAcento(n) === semAcento(cat));
     if (existe && re.test(texto)) return existe;
@@ -179,10 +182,9 @@ export function sugerirCategoria(linha, compras, categorias) {
 // - Parcela k/N: vira compra de N parcelas cuja k-ésima cai na fatura alvo
 // - Data real mantida quando ela já cai na fatura certa; senão ajustada
 // - Valores ≤ 0 (pagamento, estorno, crédito) ficam de fora
-// - Duplicadas (já existem no app) vêm desmarcadas
+// - Já lançadas no app vêm desmarcadas (ver acharExistente)
 export function prepararImportacao(linhas, { faturaAlvo, fechamento, compras = [], categorias = [] }) {
-  const existentes = new Set(compras.map(c =>
-    [normalizarDesc(c.desc), arred(c.valorParcela), c.parcelas, fatKeyOf(c, fechamento)].join('|')));
+  const livres = [...compras];   // cada compra do app "casa" com no máximo uma linha do arquivo
 
   const itens = [], ignorados = [];
   for (const l of linhas) {
@@ -193,9 +195,9 @@ export function prepararImportacao(linhas, { faturaAlvo, fechamento, compras = [
     const data = getFatKey(l.data, fechamento) === inicio ? l.data : dataParaFatura(inicio, fechamento);
     const desc = limparDesc(l.desc);
     const valorParcela = arred(l.valor);
-    const chave = [normalizarDesc(desc), valorParcela, parcelas, inicio].join('|');
-    const duplicada = existentes.has(chave);
-    existentes.add(chave); // a mesma linha repetida no arquivo também conta como duplicada
+    const iExistente = acharExistente(livres, { desc, dataArquivo: l.data, parcelas, valorParcela, inicio }, fechamento);
+    const duplicada = iExistente >= 0;
+    if (duplicada) livres.splice(iExistente, 1);
     itens.push({
       desc, data, dataArquivo: l.data, inicio, parcelas, valorParcela, parcelaAtual: k,
       cat: sugerirCategoria(l, compras, categorias),
@@ -203,6 +205,34 @@ export function prepararImportacao(linhas, { faturaAlvo, fechamento, compras = [
     });
   }
   return { itens, ignorados };
+}
+
+const diasEntre = (a, b) => Math.abs((new Date(a) - new Date(b)) / 86400000);
+
+// Procura no app uma compra que seja a mesma da linha, mesmo lançada à mão com outro nome:
+// - parcelada: mesmo nº de parcelas e valor da parcela, 1ª parcela na mesma fatura (±1 mês)
+// - à vista: mesmo valor e data até 3 dias de diferença (ou mesmo nome na mesma fatura)
+function acharExistente(compras, item, fechamento) {
+  const mesmoValor = c => Math.abs(arred(c.valorParcela) - item.valorParcela) < 0.005;
+  if (item.parcelas > 1) {
+    const perto = k => [addMonths(item.inicio, -1), item.inicio, addMonths(item.inicio, 1)].includes(k);
+    return compras.findIndex(c => c.parcelas === item.parcelas && mesmoValor(c) && perto(fatKeyOf(c, fechamento)));
+  }
+  const norm = normalizarDesc(item.desc);
+  return compras.findIndex(c => c.parcelas === 1 && mesmoValor(c) && (
+    (c.data && diasEntre(c.data, item.dataArquivo) <= 3) ||
+    (normalizarDesc(c.desc) === norm && fatKeyOf(c, fechamento) === item.inicio)));
+}
+
+// Sugere o dia de fechamento pelo arquivo: numa fatura, as compras à vista vão do dia do
+// fechamento anterior até a véspera do próximo. Só sugere se o arquivo cobre ~1 mês.
+export function sugerirFechamento(linhas) {
+  const datas = linhas.filter(l => l.valor > 0 && !l.parcela).map(l => l.data).sort();
+  if (datas.length < 5) return null;
+  const ini = datas[0], fim = datas.at(-1);
+  const dias = diasEntre(ini, fim);
+  if (dias < 20 || dias > 35) return null;
+  return +ini.slice(8, 10);
 }
 
 // Tira o sufixo de parcela da descrição ("LOJA X - Parcela 3/10" → "LOJA X")

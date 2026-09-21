@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseValor, parseData, parseParcela, dividirLinhaCSV, lerArquivo, decodificarArquivo,
-  sugerirCategoria, prepararImportacao, limparDesc,
+  sugerirCategoria, prepararImportacao, limparDesc, sugerirFechamento,
 } from '../js/importar.js';
 import { getFatKey, fatKeyOf, parcelaNaFatura } from '../js/fatura.js';
 
@@ -117,7 +117,7 @@ test('sugerirCategoria: histórico > palavra-chave > Outros', () => {
 test('prepararImportacao: parcelas, datas, ignorados e duplicadas', () => {
   const linhas = [
     { data: '2026-08-12', desc: 'Supermercado Dia', valor: 152.3, parcela: null },
-    { data: '2026-08-12', desc: 'Supermercado Dia', valor: 152.3, parcela: null },   // repetida no arquivo
+    { data: '2026-08-12', desc: 'Supermercado Dia', valor: 152.3, parcela: null },   // 2 compras iguais no mesmo dia
     { data: '2026-04-20', desc: 'Magazine - Parcela 3/10', valor: 120, parcela: { atual: 3, total: 10 } },
     { data: '2026-08-25', desc: 'Pagamento', valor: -900, parcela: null },
     { data: '2026-08-14', desc: 'Netflix', valor: 55.9, parcela: null },
@@ -132,9 +132,10 @@ test('prepararImportacao: parcelas, datas, ignorados e duplicadas', () => {
 
   // compra à vista mantém a data real (já cai em 2026-09 com fechamento 10)
   assert.equal(itens[0].data, '2026-08-12');
+  // compras repetidas DENTRO do arquivo são reais (ex.: dois cafés iguais): não são duplicadas
   assert.equal(itens[0].duplicada, false);
-  assert.equal(itens[1].duplicada, true);          // segunda ocorrência no mesmo arquivo
-  assert.equal(itens[1].incluir, false);
+  assert.equal(itens[1].duplicada, false);
+  assert.equal(itens[1].incluir, true);
 
   // parcela 3/10 → compra de 10x cuja 3ª parcela cai na fatura alvo
   const p = itens[2];
@@ -153,6 +154,46 @@ test('prepararImportacao ajusta a data quando o arquivo não bate com a fatura e
     [{ data: '2026-08-12', desc: 'X', valor: 10, parcela: null }],
     { faturaAlvo: '2026-10', fechamento: 10, compras: [], categorias: CATEGORIAS });
   assert.equal(getFatKey(itens[0].data, 10), '2026-10');
+});
+
+test('duplicadas: reconhece compra lançada à mão com outro nome (valor + data / parcelas)', () => {
+  const compras = [
+    { desc: 'mercado do mês', cat: 'Mercado', data: '2026-08-13', parcelas: 1, valorParcela: 321.31 },   // 1 dia de diferença
+    { desc: 'tênis', cat: 'Outros', data: '2026-02-02', parcelas: 10, valorParcela: 89.99 },           // 1ª parcela em fev
+  ];
+  const linhas = [
+    { data: '2026-08-12', desc: 'Giassi Supermercados', valor: 321.31, parcela: null },
+    { data: '2026-08-12', desc: 'Giassi Supermercados', valor: 321.31, parcela: null },   // a 2ª é nova
+    { data: '2026-08-06', desc: 'Puma Sports - Parcela 8/10', valor: 89.99, parcela: { atual: 8, total: 10 } },
+  ];
+  const { itens } = prepararImportacao(linhas, { faturaAlvo: '2026-09', fechamento: 6, compras, categorias: CATEGORIAS });
+  assert.deepEqual(itens.map(i => i.duplicada), [true, false, true]);
+});
+
+test('formato real do Nubank: vírgula decimal entre aspas e "- 203,85"', () => {
+  const csv = [
+    'date,title,amount',
+    '2026-09-04,Giassi Supermercados,"59,46"',
+    '2026-09-03,Pagamento recebido,"- 203,85"',
+    '2026-08-10,Pagamento recebido,"- 8.083,96"',
+    '2026-08-06,Porto Seguro Cia Seg G - Parcela 5/10,"150,21"',
+    '2026-08-12,Mercadolivre*Minagua,"30,89"',
+    '2026-08-06,Mercadolivre*Mercadol - Parcela 8/10,"84,90"',
+    '2026-08-27,Ifd*Blumenau Gastronom,"67,22"',
+  ].join('\n');
+  const l = lerArquivo(csv, 'Nubank_2026-09-13.csv');
+  assert.deepEqual(l.map(x => x.valor), [59.46, -203.85, -8083.96, 150.21, 30.89, 84.9, 67.22]);
+  assert.equal(sugerirCategoria(l[0], [], CATEGORIAS), 'Mercado');
+  assert.equal(sugerirCategoria(l[4], [], CATEGORIAS), 'Outros');        // Mercado Livre não é mercado
+  assert.equal(sugerirCategoria(l[5], [], CATEGORIAS), 'Outros');
+  assert.equal(sugerirCategoria(l[6], [], CATEGORIAS), 'Alimentação');   // iFood abreviado
+});
+
+test('sugerirFechamento pelo período das compras à vista', () => {
+  const l = ['2026-08-06', '2026-08-15', '2026-08-22', '2026-08-30', '2026-09-04']
+    .map(data => ({ data, valor: 10, parcela: null }));
+  assert.equal(sugerirFechamento(l), 6);
+  assert.equal(sugerirFechamento(l.slice(0, 2)), null);   // poucas compras
 });
 
 test('limparDesc', () => {
