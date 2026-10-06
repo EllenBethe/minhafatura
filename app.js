@@ -1107,7 +1107,9 @@ const ACOES = {
       ACOES.goHome();
     } catch (e) {
       hideLoading();
-      showErr('imp-erro', 'Erro ao importar: ' + e.message);
+      console.error(e);
+      // alert e não showErr: o botão fica no fim da lista e a mensagem do topo some antes de ser vista
+      alert('Erro ao importar: ' + e.message);
     }
   },
 };
@@ -1119,7 +1121,9 @@ function despachar(tipo) {
     if (!el) return;
     const acao = ACOES[el.dataset[tipo]];
     if (!acao) return console.error(`Ação desconhecida: data-${tipo}="${el.dataset[tipo]}"`);
-    acao(el, ev);
+    // Erro não tratado numa ação não pode passar em silêncio ("cliquei e nada aconteceu")
+    const falhou = e => { hideLoading(); console.error(e); alert('Algo deu errado: ' + e.message); };
+    try { acao(el, ev)?.catch?.(falhou); } catch (e) { falhou(e); }
   };
 }
 document.addEventListener('click',  despachar('action'));
