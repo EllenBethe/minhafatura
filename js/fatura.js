@@ -31,9 +31,13 @@ export function getFatKey(dateStr, fechamento) {
   return d >= fechamento ? addMonths(key, 1) : key;
 }
 
-// Fatura da 1ª parcela, sempre recalculada a partir da data da compra
-// (assim mudar o dia de fechamento reposiciona as compras antigas)
+// Fatura da 1ª parcela, recalculada a partir da data da compra
+// (assim mudar o dia de fechamento reposiciona as compras lançadas à mão).
+// Compra importada da fatura do banco guarda a fatura em que de fato caiu (fatFixa):
+// mudar o fechamento depois não a move de mês. Se a data for editada
+// (data ≠ fatFixaData), volta a valer a data.
 export function fatKeyOf(c, fechamento) {
+  if (c.fatFixa && c.data === c.fatFixaData) return c.fatFixa;
   return c.data ? getFatKey(c.data, fechamento) : c.fatKey;
 }
 

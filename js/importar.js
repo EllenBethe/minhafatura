@@ -278,7 +278,7 @@ export function prepararImportacao(linhas, { faturaAlvo, fechamento, compras = [
     const duplicada = iExistente >= 0;
     if (duplicada) livres.splice(iExistente, 1);
     // estorno herda a categoria da loja ("Estorno Renner" → a categoria da Renner)
-    const linhaCat = estorno ? { ...l, desc: l.desc.replace(/^s*(estorno|credito|crédito|reembolso)( de)?s*/i, '') } : l;
+    const linhaCat = estorno ? { ...l, desc: l.desc.replace(/^\s*(estorno|credito|crédito|reembolso)( de)?\s*/i, '').replace(/^["“](.*)["”]$/, '$1') } : l;
     itens.push({
       desc, data, dataArquivo: l.data, inicio, parcelas, valorParcela, parcelaAtual: k, estorno,
       cat: sugerirCategoria(linhaCat, compras, categorias, regras),
@@ -306,15 +306,22 @@ export function agruparImportacoes(compras) {
 const diasEntre = (a, b) => Math.abs((new Date(a) - new Date(b)) / 86400000);
 
 // Procura no app uma compra que seja a mesma da linha, mesmo lançada à mão com outro nome:
-// - parcelada: mesmo nº de parcelas e valor da parcela, 1ª parcela na mesma fatura (±1 mês)
+// - parcelada: mesmo nº de parcelas e 1ª parcela na mesma fatura (±1 mês), com o mesmo
+//   valor de parcela — ou, se o nome for o mesmo, até R$ 0,10 de diferença (o banco
+//   arredonda as parcelas de um jeito, 36,63, e a compra lançada à mão de outro, 36,64)
 // - à vista: mesmo valor e data até 3 dias de diferença (ou mesmo nome na mesma fatura)
+const TOLERANCIA_PARCELA = 0.10;
 function acharExistente(compras, item, fechamento) {
   const mesmoValor = c => Math.abs(arred(c.valorParcela) - item.valorParcela) < 0.005;
+  const norm = normalizarDesc(item.desc);
   if (item.parcelas > 1) {
     const perto = k => [addMonths(item.inicio, -1), item.inicio, addMonths(item.inicio, 1)].includes(k);
-    return compras.findIndex(c => c.parcelas === item.parcelas && mesmoValor(c) && perto(fatKeyOf(c, fechamento)));
+    const candidata = c => c.parcelas === item.parcelas && perto(fatKeyOf(c, fechamento));
+    const exata = compras.findIndex(c => candidata(c) && mesmoValor(c));
+    if (exata >= 0) return exata;
+    return compras.findIndex(c => candidata(c) && normalizarDesc(c.desc) === norm
+      && Math.abs(arred(c.valorParcela) - item.valorParcela) <= TOLERANCIA_PARCELA + 0.0001);
   }
-  const norm = normalizarDesc(item.desc);
   return compras.findIndex(c => c.parcelas === 1 && mesmoValor(c) && (
     (c.data && diasEntre(c.data, item.dataArquivo) <= 3) ||
     (normalizarDesc(c.desc) === norm && fatKeyOf(c, fechamento) === item.inicio)));
