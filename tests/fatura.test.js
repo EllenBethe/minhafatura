@@ -81,3 +81,11 @@ test('esc neutraliza HTML', () => {
 test('hojeISO usa o fuso local', () => {
   assert.equal(hojeISO(new Date(2026, 8, 18, 23, 30)), '2026-09-18');
 });
+
+test('fatKeyOf: compra importada usa a fatura fixa; editar a data volta a usar a data', () => {
+  const c = { data: '2026-11-09', fatFixa: '2026-11', fatFixaData: '2026-11-09', parcelas: 1 };
+  assert.equal(fatKeyOf(c, 10), '2026-11');
+  assert.equal(fatKeyOf(c, 6), '2026-11');       // pela data seria dezembro
+  assert.equal(fatKeyOf({ ...c, data: '2026-11-20' }, 6), '2026-12');
+  assert.equal(fatKeyOf({ data: '2026-11-09', parcelas: 1 }, 6), '2026-12');   // sem fatFixa: igual a antes
+});

@@ -240,3 +240,64 @@ test('limparDesc', () => {
   assert.equal(limparDesc('POSTO SHELL 02/03'), 'POSTO SHELL');
   assert.equal(limparDesc('Mercado'), 'Mercado');
 });
+
+// Caso real (fatura Nubank nov/2026): a compra já estava no app com a parcela arredondada
+// diferente (36,64) e o banco cobra 36,63. Antes virava compra repetida (+R$ 491,94 na fatura).
+test('duplicadas: parcela do mesmo nome com poucos centavos de diferença é a mesma compra', () => {
+  const compras = [
+    { desc: 'Panvel*Digital', cat: 'Saúde', data: '2026-08-10', parcelas: 3, valorParcela: 36.64 },
+    { desc: 'Petz Digital', cat: 'Outros', data: '2026-09-20', parcelas: 3, valorParcela: 88.64 },
+  ];
+  const linhas = [
+    { data: '2026-10-06', desc: 'Panvel*Digital - Parcela 3/3', valor: 36.63, parcela: { atual: 3, total: 3 } },
+    { data: '2026-10-06', desc: 'Petz Digital - Parcela 2/3', valor: 88.63, parcela: { atual: 2, total: 3 } },
+    // mesmo nome mas diferença grande: é outra compra
+    { data: '2026-10-06', desc: 'Petz Digital - Parcela 2/3', valor: 60, parcela: { atual: 2, total: 3 } },
+    // nome diferente com centavos de diferença: não arrisca, trata como nova
+    { data: '2026-10-06', desc: 'Outra Loja - Parcela 3/3', valor: 36.60, parcela: { atual: 3, total: 3 } },
+  ];
+  const { itens } = prepararImportacao(linhas, { faturaAlvo: '2026-11', fechamento: 6, compras, categorias: CATEGORIAS });
+  assert.deepEqual(itens.map(i => i.duplicada), [true, true, false, false]);
+});
+
+test('duplicadas: valor exato tem prioridade sobre o parecido', () => {
+  const compras = [
+    { desc: 'Renner', cat: 'Outros', data: '2026-09-17', parcelas: 4, valorParcela: 49.25 },
+    { desc: 'Renner', cat: 'Outros', data: '2026-09-18', parcelas: 4, valorParcela: 49.22 },
+  ];
+  const linhas = [{ data: '2026-10-06', desc: 'Renner - Parcela 2/4', valor: 49.22, parcela: { atual: 2, total: 4 } }];
+  const r = prepararImportacao(linhas, { faturaAlvo: '2026-11', fechamento: 6, compras, categorias: CATEGORIAS });
+  assert.equal(r.itens[0].duplicada, true);
+  // a de 49,25 continua livre para outra linha: importar de novo com 49,25 também casa
+  const r2 = prepararImportacao([...linhas, { ...linhas[0], valor: 49.25 }], { faturaAlvo: '2026-11', fechamento: 6, compras, categorias: CATEGORIAS });
+  assert.deepEqual(r2.itens.map(i => i.duplicada), [true, true]);
+});
+
+test('importada fica na fatura do banco mesmo se o fechamento mudar depois', () => {
+  const { itens } = prepararImportacao(
+    [{ data: '2026-10-07', desc: 'Posto Almirante', valor: 19.5, parcela: null },
+     { data: '2026-10-06', desc: 'Renner - Parcela 2/4', valor: 49.22, parcela: { atual: 2, total: 4 } }],
+    { faturaAlvo: '2026-11', fechamento: 10, compras: [], categorias: CATEGORIAS });
+  // como o app grava (app.js importConfirmar)
+  const gravadas = itens.map(({ desc, data, parcelas, valorParcela, inicio }) =>
+    ({ desc, data, parcelas, valorParcela, fatFixa: inicio, fatFixaData: data }));
+  for (const fech of [10, 6, 1, 28]) {
+    assert.equal(parcelaNaFatura(gravadas[0], '2026-11', fech), 1, `à vista, fechamento ${fech}`);
+    assert.equal(parcelaNaFatura(gravadas[1], '2026-11', fech), 2, `parcela, fechamento ${fech}`);
+  }
+  // reimportar o mesmo arquivo depois de trocar o fechamento não duplica
+  const r = prepararImportacao(
+    [{ data: '2026-10-07', desc: 'Posto Almirante', valor: 19.5, parcela: null }],
+    { faturaAlvo: '2026-11', fechamento: 6, compras: gravadas, categorias: CATEGORIAS });
+  assert.equal(r.itens[0].duplicada, true);
+});
+
+test('crédito herda a categoria da loja ("Crédito de \"Shopee ...\"")', () => {
+  const cats = [...CATEGORIAS, { name: 'Compras', emoji: '·' }];
+  const compras = [{ desc: 'Shopee *Topmania688', cat: 'Compras', data: '2026-10-09', parcelas: 3, valorParcela: 77.97 }];
+  const { itens } = prepararImportacao(
+    [{ data: '2026-10-18', desc: 'Crédito de "Shopee *Topmania688"', valor: -31.29, parcela: null }],
+    { faturaAlvo: '2026-11', fechamento: 6, compras, categorias: cats });
+  assert.equal(itens[0].estorno, true);
+  assert.equal(itens[0].cat, 'Compras');
+});

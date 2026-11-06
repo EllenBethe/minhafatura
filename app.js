@@ -1098,8 +1098,9 @@ const ACOES = {
     try {
       // importId identifica o lote, para poder desfazer a importação inteira depois
       const lote = { origem: 'importacao', importId: Date.now().toString(36), importadoEm: new Date().toISOString(), importArquivo: S.imp.nome || '' };
-      await adicionarEmLote(marcados.map(({ desc, cat, data, parcelas, valorParcela }) =>
-        ({ desc, cat, data, parcelas, valorParcela, ...lote })));
+      // fatFixa: fatura do banco em que a compra caiu — não muda se o fechamento mudar depois
+      await adicionarEmLote(marcados.map(({ desc, cat, data, parcelas, valorParcela, inicio }) =>
+        ({ desc, cat, data, parcelas, valorParcela, fatFixa: inicio, fatFixaData: data, ...lote })));
       S.faturaAtiva = $('imp-fatura').value;
       S.imp = null;
       hideLoading();
